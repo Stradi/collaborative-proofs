@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.WeakGiuga.Problem",
+  "solution_module": "Proofs.WeakGiuga.Solution",
+  "theorem_names": ["WeakGiuga.isWeakGiuga_iff_sum_primeFactors"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "external_kernels": {"nanoda": ["nanoda_bin"]}
+}

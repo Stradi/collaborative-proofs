@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.WeakGiuga.PrimeDivisorCondition",
+  "solution_module": "Proofs.WeakGiuga.PrimeDivisorCondition",
+  "theorem_names": ["WeakGiuga.isWeakGiuga_iff_primeDivisorCondition"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "external_kernels": {"nanoda": ["nanoda_bin"]}
+}

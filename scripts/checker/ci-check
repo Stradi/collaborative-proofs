@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# Judges a proof PR. Runs from the trusted base checkout and reads the PR head only as data.
+# Usage: ci-check <base-checkout> <pr-head-checkout> <work-dir>
+# Writes <work-dir>/out/verdict.json. Exit codes: 0 accepted, 1 rejected, 2 checker fault.
+set -uo pipefail
+
+base=$(realpath "$1")
+submission=$(realpath "$2")
+work=$(realpath -m "$3")
+# shellcheck source=lib.sh
+. "$base/scripts/checker/lib.sh"
+
+out=$work/out
+ws=$work/workspace
+mkdir -p "$out" "$work/home"
+: "${CHECK_MEMORY:=6g}" "${CHECK_CPUS:=2}" "${CHECK_PIDS:=1024}"
+: "${CHECK_BUILD_TIMEOUT:=1200}" "${CHECK_JUDGE_TIMEOUT:=900}"
+
+base_sha=$(git -C "$base" rev-parse HEAD)
+head_sha=$(git -C "$submission" rev-parse HEAD)
+task="" proof="" digest=""
+
+json_escape() {
+  sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/ /g' | awk 'BEGIN { ORS = "" } NR > 1 { print "\\n" } { print }'
+}
+
+finish() {
+  local verdict=$1 stage=$2 reason=$3 code
+  case $verdict in accepted) code=0 ;; rejected) code=1 ;; *) code=2 ;; esac
+  cat >"$out/verdict.json" <<JSON
+{
+  "verdict": "$verdict",
+  "stage": "$stage",
+  "task": "$task",
+  "proof_file": "$proof",
+  "proof_sha256": "$digest",
+  "base_sha": "$base_sha",
+  "head_sha": "$head_sha",
+  "reason": "$(printf '%s' "$reason" | json_escape)"
+}
+JSON
+  log "$verdict at $stage: $reason"
+  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+    printf '### Proof check: %s\n\n- Task: `%s`\n- Stage: %s\n- Head: `%s`\n\n```\n%s\n```\n' \
+      "$verdict" "${task:-unknown}" "$stage" "$head_sha" "$reason" >>"$GITHUB_STEP_SUMMARY"
+  fi
+  exit "$code"
+}
+
+docker_user() {
+  # Rootless Docker maps container root to the invoking user; rootful Docker needs the runner's uid.
+  if docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+    echo 0:0
+  else
+    echo "$(id -u):$(id -g)"
+  fi
+}
+
+# Runs a command with no network, no credentials, and fixed CPU, memory, process, and time limits.
+# Only the listed paths are visible; the toolchain and dependencies are read-only.
+sandboxed() {
+  local seconds=$1
+  shift
+  docker run --rm --network none --user "$(docker_user)" \
+    --memory "$CHECK_MEMORY" --memory-swap "$CHECK_MEMORY" --cpus "$CHECK_CPUS" \
+    --pids-limit "$CHECK_PIDS" --cap-drop ALL --security-opt no-new-privileges \
+    --read-only --tmpfs /tmp:rw,exec,size=1g \
+    --env HOME=/tmp --env "ELAN_HOME=$ELAN_HOME" --env "PATH=$PATH" --env LEAN_ABORT_ON_PANIC=1 \
+    --volume "$ELAN_HOME:$ELAN_HOME:ro" "${mounts[@]}" \
+    proof-sandbox timeout --kill-after=10 "$seconds" "$@"
+}
+
+log "Checking $head_sha against base $base_sha"
+
+merge_base=$(git -C "$submission" merge-base "$base_sha" HEAD) ||
+  finish fault files "could not find the merge base of the PR and $base_sha"
+changes=$(git -C "$submission" diff --no-renames --name-status "$merge_base" HEAD)
+if [[ $(grep -c . <<<"$changes") -ne 1 ]]; then
+  finish rejected files "a proof PR must change exactly one task proof file; it changes:
+$changes"
+fi
+status=${changes%%$'\t'*}
+proof=${changes#*$'\t'}
+for config in "$base"/problems/*/tasks/*.json; do
+  if [[ $(module_path "$(json_string solution_module "$config")") == "$proof" ]]; then
+    problem_dir=${config%/tasks/*}
+    task="${problem_dir##*/}/$(basename "$config" .json)"
+  fi
+done
+[[ -n $task ]] || finish rejected files "$proof is not a task proof file"
+[[ $status == A || $status == M ]] || finish rejected files "$proof must be added or modified, not $status"
+[[ $(git -C "$submission" ls-tree HEAD -- "$proof" | cut -d ' ' -f 1) == 100644 ]] ||
+  finish rejected files "$proof must be a regular file"
+
+config=$(task_config "$task")
+module=$(json_string solution_module "$base/$config")
+challenge_module=$(json_string challenge_module "$base/$config")
+mapfile -t theorems < <(json_theorems "$base/$config")
+
+rm -rf "$ws" && mkdir -p "$ws"
+git -C "$base" archive "$base_sha" | tar -x -C "$ws" || finish fault setup "could not copy the base checkout"
+git -C "$submission" show "HEAD:$proof" >"$ws/$proof" || finish fault setup "could not read $proof"
+digest=$(sha256sum "$ws/$proof" | cut -d ' ' -f 1)
+
+if ! reasons=$(lint_proof "$ws/$proof" "$ws/$(module_path "$challenge_module")"); then
+  finish rejected rules "$reasons"
+fi
+
+cd "$ws" || finish fault setup "missing workspace"
+export ELAN_HOME=$work/elan HOME=$work/home
+ensure_lean || finish fault setup "could not install the pinned toolchain"
+fetch_mathlib "$proof" "$(module_path "$challenge_module")" ||
+  finish fault setup "could not fetch dependencies or the Mathlib cache"
+docker build --quiet --tag proof-sandbox --file "$base/scripts/checker/sandbox.Dockerfile" \
+  "$base/scripts/checker" >/dev/null || finish fault setup "could not build the sandbox image"
+
+log "Exporting the frozen claim $challenge_module"
+mapfile -t targets < <(export_targets "${theorems[@]}")
+{ lake build "$challenge_module" &&
+  LEAN_PATH=$(lake env printenv LEAN_PATH) leanexport "$challenge_module" -- "${targets[@]}" >"$out/challenge.ndjson"; } >&2 ||
+  finish fault claim "could not build or export the frozen claim"
+
+log "Probing the sandbox before it runs submitted code"
+mounts=()
+probe=$(sandboxed 60 sh -c '
+  if env | grep -E "^(GITHUB|ACTIONS|RUNNER)_"; then echo "credentials or runner state leak in"; exit 3; fi
+  if git ls-remote https://github.com/leanprover/lean4 HEAD >/dev/null 2>&1; then echo "network reachable"; exit 3; fi
+  echo "no network, no GitHub or runner variables, memory.max=$(cat /sys/fs/cgroup/memory.max)" \
+    "pids.max=$(cat /sys/fs/cgroup/pids.max) cpu.max=$(cat /sys/fs/cgroup/cpu.max) uid=$(id -u)"
+' 2>&1) || finish fault sandbox "the sandbox is not isolated: $probe"
+log "Sandbox: $probe"
+
+log "Building and exporting the submission in the sandbox"
+mounts=(--volume "$ws:$ws" --volume "$ws/.lake/packages:$ws/.lake/packages:ro" --volume "$out:$out"
+  --workdir "$ws")
+sandboxed "$CHECK_BUILD_TIMEOUT" sh -c '
+  module=$1 out=$2
+  shift 2
+  lake build "$module" || exit 10
+  LEAN_PATH=$(lake env printenv LEAN_PATH) leanexport "$module" -- "$@" > "$out/solution.ndjson" || exit 11
+' sh "$module" "$out" "${targets[@]}" >"$out/build.log" 2>&1
+status=$?
+build_log=$(grep -v 'designed for use with the module system' "$out/build.log" | tail -n 40)
+case $status in
+  0) ;;
+  10) finish rejected build "$build_log" ;;
+  11) finish rejected export "$build_log" ;;
+  124 | 137) finish rejected limits "the build exceeded ${CHECK_BUILD_TIMEOUT}s or ${CHECK_MEMORY} (exit $status)
+$build_log" ;;
+  *) finish fault build "the sandbox failed to run (exit $status)
+$build_log" ;;
+esac
+
+log "Judging the exports with comparator"
+mounts=(--volume "$base:$base:ro" --volume "$out:$out" --workdir "$base")
+sandboxed "$CHECK_JUDGE_TIMEOUT" lake comparator --inadvisably-no-sandbox --config="$base/$config" \
+  --challenge-from-export="$out/challenge.ndjson" --solution-from-export="$out/solution.ndjson" \
+  >"$out/judge.log" 2>&1
+status=$?
+judge_log=$(grep -v -e 'designed for use with the module system' -e 'Sandbox disabled' "$out/judge.log" | tail -n 40)
+case $status in
+  0) finish accepted comparator "$judge_log" ;;
+  1) finish rejected comparator "$judge_log" ;;
+  124 | 137) finish rejected limits "the kernels exceeded ${CHECK_JUDGE_TIMEOUT}s or ${CHECK_MEMORY} (exit $status)
+$judge_log" ;;
+  *) finish fault comparator "comparator could not run (exit $status)
+$judge_log" ;;
+esac

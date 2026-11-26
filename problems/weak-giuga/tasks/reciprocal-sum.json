@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.WeakGiuga.ReciprocalSum",
+  "solution_module": "Proofs.WeakGiuga.ReciprocalSum",
+  "theorem_names": ["WeakGiuga.primeDivisorCondition_iff_reciprocalSumIsNat"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "external_kernels": {"nanoda": ["nanoda_bin"]}
+}

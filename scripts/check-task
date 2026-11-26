@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Checks one task proof against its frozen claim with the pinned Lean and Mathlib.
+# Usage: scripts/check-task <problem>/<task>      e.g. scripts/check-task weak-giuga/reciprocal-sum
+#        scripts/check-task <problem>             checks the assembled proof of the whole problem
+# Exit codes: 0 accepted, 1 rejected, 2 the check could not run.
+set -uo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root" || exit 2
+# shellcheck source=checker/lib.sh
+. scripts/checker/lib.sh
+
+fail_to_run() { log "Could not run the check: $*"; exit 2; }
+
+task=${1:-}
+[[ -n $task ]] || fail_to_run "usage: scripts/check-task <problem>/<task>"
+if [[ $task == */* ]]; then config=$(task_config "$task"); else config=problems/$task/problem.json; fi
+[[ -f $config ]] || fail_to_run "no config at $config"
+proof=$(module_path "$(json_string solution_module "$config")")
+challenge=$(module_path "$(json_string challenge_module "$config")")
+[[ -f $proof ]] || fail_to_run "write the proof in $proof first"
+
+started=$SECONDS
+# The assembled proof is maintainer code that imports the plan and the merged task proofs.
+if [[ $task == */* ]] && ! reasons=$(lint_proof "$proof" "$challenge"); then
+  printf '%s\n' "$reasons" >&2
+  log "REJECTED: $proof breaks the submission rules"
+  exit 1
+fi
+
+ensure_lean || fail_to_run "could not install Lean"
+fetch_mathlib "$proof" "$challenge" || fail_to_run "could not fetch dependencies or the Mathlib cache"
+log "Setup took $((SECONDS - started))s"
+
+sandbox=()
+if ! bwrap --ro-bind / / --unshare-all true 2>/dev/null; then
+  log "bubblewrap is unavailable, so comparator runs unsandboxed. CI rechecks the PR in isolation."
+  sandbox=(--inadvisably-no-sandbox)
+fi
+
+checked=$SECONDS
+lake comparator "${sandbox[@]}" --config="$config"
+status=$?
+log "Comparator took $((SECONDS - checked))s"
+case $status in
+  0) log "ACCEPTED: $task" ;;
+  1) log "REJECTED: $task" ;;
+  *) log "Could not run comparator (exit $status)"; status=2 ;;
+esac
+exit "$status"
