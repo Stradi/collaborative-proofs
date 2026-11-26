@@ -1,5 +1,4 @@
 # shellcheck shell=bash
-# Shared by scripts/check-task (local) and scripts/checker/ci-check (GitHub Actions).
 
 ELAN_VERSION=v4.4.0
 PERMITTED_AXIOMS=(propext Quot.sound Classical.choice)
@@ -38,24 +37,32 @@ lint_proof() {
   allowed=$(file_imports "$challenge")
   while read -r import; do
     [[ -z $import ]] && continue
-    if [[ $import == Mathlib.* ]] || grep -qxF "$import" <<<"$allowed"; then continue; fi
+    if [[ $import == Mathlib || $import == Mathlib.* ]] || grep -qxF "$import" <<<"$allowed"; then continue; fi
     echo "import not allowed: $import (use Mathlib modules and the task's claims module)"
     failed=1
   done < <(file_imports "$file")
 
-  source=$(sed -E 's/--.*$//' "$file")
-  local words='sorry|admit|native_decide|bv_decide|implemented_by|extern|export|ofReduceBool|ofReduceNat|trustCompiler|axiom|unsafe|partial|opaque|initialize|builtin_initialize|run_cmd|run_elab|run_meta|elab|elab_rules|macro|macro_rules|syntax|declare_syntax_cat|notation|infix|infixl|infixr|postfix'
+  # Comments are linted too: stripping them would need a Lean lexer, and a banned word in a comment
+  # costs the author only a rewording.
+  source=$(<"$file")
+  local words='sorry|admit|native_decide|bv_decide|run_tac|by_elab|simproc|dsimproc|simproc_decl|term_elab|command_elab|implemented_by|extern|export|ofReduceBool|ofReduceNat|trustCompiler|axiom|unsafe|partial|opaque|initialize|builtin_initialize|run_cmd|run_elab|run_meta|elab|elab_rules|macro|macro_rules|syntax|declare_syntax_cat|notation|infix|infixl|infixr|postfix'
   local hits
   hits=$( {
     grep -n -o -E "(^|[^A-Za-z0-9_.'])($words)([^A-Za-z0-9_']|\$)|\+native|debug\.[A-Za-z.]+" <<<"$source"
-    grep -n -o -E '^[[:space:]]*#[a-z_]+' <<<"$source"
+    grep -n -o -E '#(eval|exec|exit|reduce|print|check|synth|guard[a-z_]*|time|count_heartbeats|help|where|find|lint|simp|conv|norm_num|widget|html|test|sample)\b' <<<"$source"
+    grep -n -o -E '@\[[^]]*\b(tactic|init|env_linter|builtin_[a-z_]+)\b' <<<"$source"
   } | sed -E "s/^([0-9]+):[^A-Za-z0-9_#+]*([A-Za-z0-9_#+.]+).*/\1: \2/" || true)
   if [[ -n $hits ]]; then
     while read -r hit; do echo "line ${hit%%:*}: \`${hit#*: }\` is not allowed in a proof"; done <<<"$hits"
     failed=1
   fi
-  hits=$(grep -n -E 'set_option' <<<"$source" |
-    grep -v -E 'set_option[[:space:]]+(maxHeartbeats|maxRecDepth|synthInstance\.maxHeartbeats|linter\.[A-Za-z.]+)[[:space:]]' || true)
+  hits=$(grep -n -E '"' <<<"$source" | cut -d : -f 1 || true)
+  if [[ -n $hits ]]; then
+    while read -r hit; do echo "line $hit: string literals are not allowed in a proof"; done <<<"$hits"
+    failed=1
+  fi
+  hits=$(grep -n -o -E 'set_option[[:space:]]+[^[:space:]]+' <<<"$source" |
+    grep -v -E 'set_option[[:space:]]+(maxHeartbeats|maxRecDepth|synthInstance\.maxHeartbeats|linter\.[A-Za-z.]+)$' || true)
   if [[ -n $hits ]]; then
     while read -r hit; do echo "line ${hit%%:*}: only maxHeartbeats, maxRecDepth and linter options may be set"; done <<<"$hits"
     failed=1
@@ -76,7 +83,6 @@ ensure_lean() {
   PATH="$(lean --print-prefix)/bin:$PATH"
 }
 
-# Prints the given files and every project file they import, directly or through each other.
 local_import_closure() {
   local -a queue=("$@")
   local -A seen=()
@@ -104,6 +110,11 @@ fetch_mathlib() {
   MATHLIB_NO_CACHE_ON_UPDATE=1 lake exe cache get "${files[@]}" >&2
 }
 
-export_targets() {
-  printf '%s\n' "$@" "${PERMITTED_AXIOMS[@]}" "${PRIMITIVE_TARGETS[@]}"
+# Usage: export_module <module> <export-file> <theorem>...
+export_module() {
+  local module=$1 file=$2
+  shift 2
+  lake build "$module" >&2 || return 10
+  LEAN_PATH=$(lake env printenv LEAN_PATH) leanexport "$module" -- \
+    "$@" "${PERMITTED_AXIOMS[@]}" "${PRIMITIVE_TARGETS[@]}" >"$file" || return 11
 }

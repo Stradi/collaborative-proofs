@@ -32,16 +32,24 @@ ensure_lean || fail_to_run "could not install Lean"
 fetch_mathlib "$proof" "$challenge" || fail_to_run "could not fetch dependencies or the Mathlib cache"
 log "Setup took $((SECONDS - started))s"
 
-sandbox=()
-if ! bwrap --ro-bind / / --unshare-all true 2>/dev/null; then
-  log "bubblewrap is unavailable, so comparator runs unsandboxed. CI rechecks the PR in isolation."
-  sandbox=(--inadvisably-no-sandbox)
-fi
-
+exports=$(mktemp -d)
+trap 'rm -rf "$exports"' EXIT
+mapfile -t theorems < <(json_theorems "$config")
 checked=$SECONDS
-lake comparator "${sandbox[@]}" --config="$config"
+export_module "$(json_string challenge_module "$config")" "$exports/claim.ndjson" "${theorems[@]}" ||
+  fail_to_run "could not build or export the frozen claim"
+export_module "$(json_string solution_module "$config")" "$exports/solution.ndjson" "${theorems[@]}"
+case $? in
+  0) ;;
+  10) log "REJECTED: $proof does not build"; exit 1 ;;
+  *) fail_to_run "$proof builds but could not be exported" ;;
+esac
+# Comparator's bwrap sandbox needs user namespaces that many agent machines lack. This proof is the
+# agent's own code, and CI rechecks the PR in isolation.
+lake comparator --inadvisably-no-sandbox --config="$config" \
+  --challenge-from-export="$exports/claim.ndjson" --solution-from-export="$exports/solution.ndjson"
 status=$?
-log "Comparator took $((SECONDS - checked))s"
+log "Checking took $((SECONDS - checked))s"
 case $status in
   0) log "ACCEPTED: $task" ;;
   1) log "REJECTED: $task" ;;

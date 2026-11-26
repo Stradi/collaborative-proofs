@@ -11,8 +11,11 @@ work=$(realpath -m "$3")
 . "$base/scripts/checker/lib.sh"
 
 out=$work/out
-ws=$work/workspace
-mkdir -p "$out" "$work/home"
+workspace=$work/workspace
+claim_export=$work/claim
+submission_export=$work/submission
+rm -rf "$out" "$claim_export" "$submission_export"
+mkdir -p "$out" "$claim_export" "$submission_export" "$work/home"
 : "${CHECK_MEMORY:=6g}" "${CHECK_CPUS:=2}" "${CHECK_PIDS:=1024}"
 : "${CHECK_BUILD_TIMEOUT:=1200}" "${CHECK_JUDGE_TIMEOUT:=900}"
 
@@ -56,10 +59,12 @@ docker_user() {
   fi
 }
 
-# Runs a command with no network, no credentials, and fixed CPU, memory, process, and time limits.
-# Only the listed paths are visible; the toolchain and dependencies are read-only.
+# Usage: sandboxed <seconds> [docker volume and workdir options] -- <command>
 sandboxed() {
   local seconds=$1
+  local -a mounts=()
+  shift
+  while [[ $1 != -- ]]; do mounts+=("$1"); shift; done
   shift
   docker run --rm --network none --user "$(docker_user)" \
     --memory "$CHECK_MEMORY" --memory-swap "$CHECK_MEMORY" --cpus "$CHECK_CPUS" \
@@ -79,7 +84,7 @@ if [[ $(grep -c . <<<"$changes") -ne 1 ]]; then
   finish rejected files "a proof PR must change exactly one task proof file; it changes:
 $changes"
 fi
-status=${changes%%$'\t'*}
+change_kind=${changes%%$'\t'*}
 proof=${changes#*$'\t'}
 for config in "$base"/problems/*/tasks/*.json; do
   if [[ $(module_path "$(json_string solution_module "$config")") == "$proof" ]]; then
@@ -88,7 +93,8 @@ for config in "$base"/problems/*/tasks/*.json; do
   fi
 done
 [[ -n $task ]] || finish rejected files "$proof is not a task proof file"
-[[ $status == A || $status == M ]] || finish rejected files "$proof must be added or modified, not $status"
+# A task proof already on the base branch has been accepted; replacing it is not a submission.
+[[ $change_kind == A ]] || finish rejected files "$proof must be a new file, not change kind $change_kind"
 [[ $(git -C "$submission" ls-tree HEAD -- "$proof" | cut -d ' ' -f 1) == 100644 ]] ||
   finish rejected files "$proof must be a regular file"
 
@@ -97,16 +103,16 @@ module=$(json_string solution_module "$base/$config")
 challenge_module=$(json_string challenge_module "$base/$config")
 mapfile -t theorems < <(json_theorems "$base/$config")
 
-rm -rf "$ws" && mkdir -p "$ws"
-git -C "$base" archive "$base_sha" | tar -x -C "$ws" || finish fault setup "could not copy the base checkout"
-git -C "$submission" show "HEAD:$proof" >"$ws/$proof" || finish fault setup "could not read $proof"
-digest=$(sha256sum "$ws/$proof" | cut -d ' ' -f 1)
+rm -rf "$workspace" && mkdir -p "$workspace"
+git -C "$base" archive "$base_sha" | tar -x -C "$workspace" || finish fault setup "could not copy the base checkout"
+git -C "$submission" show "HEAD:$proof" >"$workspace/$proof" || finish fault setup "could not read $proof"
+digest=$(sha256sum "$workspace/$proof" | cut -d ' ' -f 1)
 
-if ! reasons=$(lint_proof "$ws/$proof" "$ws/$(module_path "$challenge_module")"); then
+if ! reasons=$(lint_proof "$workspace/$proof" "$workspace/$(module_path "$challenge_module")"); then
   finish rejected rules "$reasons"
 fi
 
-cd "$ws" || finish fault setup "missing workspace"
+cd "$workspace" || finish fault setup "missing workspace"
 export ELAN_HOME=$work/elan HOME=$work/home
 ensure_lean || finish fault setup "could not install the pinned toolchain"
 fetch_mathlib "$proof" "$(module_path "$challenge_module")" ||
@@ -115,14 +121,11 @@ docker build --quiet --tag proof-sandbox --file "$base/scripts/checker/sandbox.D
   "$base/scripts/checker" >/dev/null || finish fault setup "could not build the sandbox image"
 
 log "Exporting the frozen claim $challenge_module"
-mapfile -t targets < <(export_targets "${theorems[@]}")
-{ lake build "$challenge_module" &&
-  LEAN_PATH=$(lake env printenv LEAN_PATH) leanexport "$challenge_module" -- "${targets[@]}" >"$out/challenge.ndjson"; } >&2 ||
+export_module "$challenge_module" "$claim_export/claim.ndjson" "${theorems[@]}" ||
   finish fault claim "could not build or export the frozen claim"
 
 log "Probing the sandbox before it runs submitted code"
-mounts=()
-probe=$(sandboxed 60 sh -c '
+probe=$(sandboxed 60 -- sh -c '
   if env | grep -E "^(GITHUB|ACTIONS|RUNNER)_"; then echo "credentials or runner state leak in"; exit 3; fi
   if git ls-remote https://github.com/leanprover/lean4 HEAD >/dev/null 2>&1; then echo "network reachable"; exit 3; fi
   echo "no network, no GitHub or runner variables, memory.max=$(cat /sys/fs/cgroup/memory.max)" \
@@ -131,38 +134,48 @@ probe=$(sandboxed 60 sh -c '
 log "Sandbox: $probe"
 
 log "Building and exporting the submission in the sandbox"
-mounts=(--volume "$ws:$ws" --volume "$ws/.lake/packages:$ws/.lake/packages:ro" --volume "$out:$out"
-  --workdir "$ws")
-sandboxed "$CHECK_BUILD_TIMEOUT" sh -c '
-  module=$1 out=$2
-  shift 2
-  lake build "$module" || exit 10
-  LEAN_PATH=$(lake env printenv LEAN_PATH) leanexport "$module" -- "$@" > "$out/solution.ndjson" || exit 11
-' sh "$module" "$out" "${targets[@]}" >"$out/build.log" 2>&1
-status=$?
+# The claim export stays outside this container, so code run while elaborating the submission
+# can only change the submission's own export, which the kernels then check.
+sandboxed "$CHECK_BUILD_TIMEOUT" --volume "$workspace:$workspace" \
+  --volume "$workspace/.lake/packages:$workspace/.lake/packages:ro" \
+  --volume "$submission_export:$submission_export" --workdir "$workspace" -- bash -c '
+  . scripts/checker/lib.sh
+  export_module "$1" "$2/solution.ndjson" "${@:3}"
+' bash "$module" "$submission_export" "${theorems[@]}" >"$out/build.log" 2>&1
+build_status=$?
 build_log=$(grep -v 'designed for use with the module system' "$out/build.log" | tail -n 40)
-case $status in
+case $build_status in
   0) ;;
-  10) finish rejected build "$build_log" ;;
-  11) finish rejected export "$build_log" ;;
-  124 | 137) finish rejected limits "the build exceeded ${CHECK_BUILD_TIMEOUT}s or ${CHECK_MEMORY} (exit $status)
+  10)
+    # A Lean error in a source file is the submission's fault; anything else is the runner's.
+    if grep -q -E '\.lean:[0-9]+:[0-9]+: error|error: [^ ]+\.lean:[0-9]+' "$out/build.log"; then
+      finish rejected build "$build_log"
+    fi
+    finish fault build "the build failed without a Lean error
+$build_log"
+    ;;
+  # The module built, so a failed export points at the runner, such as a full disk.
+  11) finish fault export "$build_log" ;;
+  124 | 137) finish rejected limits "the build exceeded ${CHECK_BUILD_TIMEOUT}s or ${CHECK_MEMORY} (exit $build_status)
 $build_log" ;;
-  *) finish fault build "the sandbox failed to run (exit $status)
+  *) finish fault build "the sandbox failed to run (exit $build_status)
 $build_log" ;;
 esac
 
 log "Judging the exports with comparator"
-mounts=(--volume "$base:$base:ro" --volume "$out:$out" --workdir "$base")
-sandboxed "$CHECK_JUDGE_TIMEOUT" lake comparator --inadvisably-no-sandbox --config="$base/$config" \
-  --challenge-from-export="$out/challenge.ndjson" --solution-from-export="$out/solution.ndjson" \
+sandboxed "$CHECK_JUDGE_TIMEOUT" --volume "$base:$base:ro" --volume "$claim_export:$claim_export:ro" \
+  --volume "$submission_export:$submission_export:ro" --workdir "$base" -- \
+  lake comparator --inadvisably-no-sandbox --config="$base/$config" \
+  --challenge-from-export="$claim_export/claim.ndjson" \
+  --solution-from-export="$submission_export/solution.ndjson" \
   >"$out/judge.log" 2>&1
-status=$?
+judge_status=$?
 judge_log=$(grep -v -e 'designed for use with the module system' -e 'Sandbox disabled' "$out/judge.log" | tail -n 40)
-case $status in
+case $judge_status in
   0) finish accepted comparator "$judge_log" ;;
   1) finish rejected comparator "$judge_log" ;;
-  124 | 137) finish rejected limits "the kernels exceeded ${CHECK_JUDGE_TIMEOUT}s or ${CHECK_MEMORY} (exit $status)
+  124 | 137) finish rejected limits "the kernels exceeded ${CHECK_JUDGE_TIMEOUT}s or ${CHECK_MEMORY} (exit $judge_status)
 $judge_log" ;;
-  *) finish fault comparator "comparator could not run (exit $status)
+  *) finish fault comparator "comparator could not run (exit $judge_status)
 $judge_log" ;;
 esac
