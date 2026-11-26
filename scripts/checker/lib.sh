@@ -76,11 +76,32 @@ ensure_lean() {
   PATH="$(lean --print-prefix)/bin:$PATH"
 }
 
+# Prints the given files and every project file they import, directly or through each other.
+local_import_closure() {
+  local -a queue=("$@")
+  local -A seen=()
+  local file import path
+  while ((${#queue[@]})); do
+    file=${queue[0]}
+    queue=("${queue[@]:1}")
+    [[ -n ${seen[$file]:-} ]] && continue
+    seen[$file]=1
+    printf '%s\n' "$file"
+    while read -r import; do
+      path=$(module_path "$import")
+      [[ $import != Mathlib.* && -f $path ]] && queue+=("$path")
+    done < <(file_imports "$file")
+  done
+}
+
 # Resolves the pinned dependencies and downloads the Mathlib build files that the given Lean files
-# import, and nothing else.
+# import, and nothing else. The cache tool follows Mathlib imports only, so the project files in
+# between are listed explicitly.
 fetch_mathlib() {
-  log "Fetching Mathlib build files imported by $*"
-  MATHLIB_NO_CACHE_ON_UPDATE=1 lake exe cache get "$@" >&2
+  local -a files
+  mapfile -t files < <(local_import_closure "$@")
+  log "Fetching Mathlib build files imported by ${files[*]}"
+  MATHLIB_NO_CACHE_ON_UPDATE=1 lake exe cache get "${files[@]}" >&2
 }
 
 export_targets() {
