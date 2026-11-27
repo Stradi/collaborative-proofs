@@ -11,16 +11,17 @@ def pell : ℕ → ℕ
   | 1 => 1
   | n + 2 => 2 * pell (n + 1) + pell n
 
+/-- Weighted count of even subsets of an n + 1 cell row. -/
+def evenSubsetCount (n : ℕ) : ℕ :=
+  ∑ r ∈ Finset.range ((n + 1) / 2 + 1), (n + 1).choose (2 * r) * 2 ^ r
+
 /-- An even-subset sum for Pell numbers. -/
 def ProblemClaim : Prop :=
-  ∀ n : ℕ, (∑ r ∈ Finset.range ((n + 1) / 2 + 1), ((n + 1).choose (2 * r)) * 2 ^ r) =
-    pell n + pell (n + 1)
+  ∀ n : ℕ, evenSubsetCount n = pell n + pell (n + 1)
 
 /-- Count even subsets by recurrence (task `even-subsets`). -/
 def EvenSubsetsClaim : Prop :=
-  ∀ n : ℕ, (∑ r ∈ Finset.range ((n + 3) / 2 + 1), ((n + 3).choose (2 * r)) * 2 ^ r) =
-    2 * (∑ r ∈ Finset.range ((n + 2) / 2 + 1), ((n + 2).choose (2 * r)) * 2 ^ r) +
-    ∑ r ∈ Finset.range ((n + 1) / 2 + 1), ((n + 1).choose (2 * r)) * 2 ^ r
+  ∀ n : ℕ, evenSubsetCount (n + 2) = 2 * evenSubsetCount (n + 1) + evenSubsetCount n
 
 /-- Add adjacent Pell terms (task `pell-neighbors`). -/
 def PellNeighborsClaim : Prop :=

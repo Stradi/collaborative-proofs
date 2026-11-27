@@ -32,7 +32,7 @@
       "claimConstant": "FactorialObstructionClaim",
       "claim": "∀ n a : ℕ, 8 ≤ n → Nat.factorial n ≠ 4 * (a * (a + 1))",
       "role": "Would rule out a fourth pair.",
-      "context": "This is the open step. Since a and a+1 are coprime, each prime-power block of n!/4 lies entirely on one side. Try to rule out partitions into consecutive products. A modular sieve can rule out ranges but does not give an unbounded proof on its own."
+      "context": "This is the open step. Since a and a+1 are coprime, each prime-power block of n!/4 lies entirely on one side. Try to rule out partitions into consecutive products. A modular sieve can rule out ranges but does not give an unbounded proof on its own. See Berndt and Galway (https://doi.org/10.1023/A:1009873805276) for the bounded sieve approach."
     }
   ]
 }
