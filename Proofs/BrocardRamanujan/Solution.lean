@@ -1,0 +1,6 @@
+import Proofs.BrocardRamanujan.Plan
+import Proofs.BrocardRamanujan.SmallCases
+import Proofs.BrocardRamanujan.ConsecutiveFactors
+import Proofs.BrocardRamanujan.FactorialObstruction
+
+theorem BrocardRamanujan.onlyKnownFactorialSquares : BrocardRamanujan.ProblemClaim := BrocardRamanujan.plan BrocardRamanujan.smallCases BrocardRamanujan.consecutiveFactors BrocardRamanujan.factorialObstruction

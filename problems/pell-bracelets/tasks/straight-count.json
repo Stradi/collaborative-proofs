@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PellBracelets.StraightCount",
+  "solution_module": "Proofs.PellBracelets.StraightCount",
+  "theorem_names": [
+    "PellBracelets.straightCount"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

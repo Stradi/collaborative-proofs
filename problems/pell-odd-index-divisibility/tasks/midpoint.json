@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PellOddIndexDivisibility.Midpoint",
+  "solution_module": "Proofs.PellOddIndexDivisibility.Midpoint",
+  "theorem_names": [
+    "PellOddIndexDivisibility.midpoint"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "title": "The even-exponent Erdős–Moser equation",
+  "summary": "Can a positive even power ever equal the sum of all smaller nonnegative integers raised to the same power? Ruling this out would settle the remaining case of the Erdős–Moser conjecture.",
+  "namespace": "ErdosMoser",
+  "theorem": "noEvenPowerSolution",
+  "tasks": [
+    {
+      "id": "moser-restriction",
+      "title": "Restrict the base of a hypothetical solution",
+      "module": "MoserRestriction",
+      "theorem": "moserRestriction",
+      "claimConstant": "MoserRestrictionClaim",
+      "claim": "∀ k m : ℕ, 2 ≤ k → Even k → 2 ≤ m → powerSum k m = m ^ k →\n    3 < m ∧ m % 8 = 3",
+      "role": "Isolates the residue class in which an even-exponent solution could occur.",
+      "context": "Use Moree's proof of Moser's theorem. Compare the sum and m^k modulo 4 to restrict m modulo 8. For an even m, grouping the sum into blocks modulo its exact power of two gives a nonzero residue, contradicting m^k. Handle m=3 separately using 1+2^k < 3^k for k≥2."
+    },
+    {
+      "id": "restricted-obstruction",
+      "title": "Exclude solutions in the remaining residue class",
+      "module": "RestrictedObstruction",
+      "theorem": "restrictedObstruction",
+      "claimConstant": "RestrictedObstructionClaim",
+      "claim": "∀ k m : ℕ, 2 ≤ k → Even k → 3 < m → m % 8 = 3 → powerSum k m ≠ m ^ k",
+      "role": "Would rule out every candidate left by Moser's restriction.",
+      "context": "This is the open step. Start from the congruences for prime divisors of m−1, m+1, 2m−1 and 2m+1 in Moree. They constrain the exponent and the reciprocal sums but yield finite lower bounds. A contradiction has to cover arbitrarily large m. Record any narrower provable claim in a give-up report."
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "title": "A six-step Padovan identity",
+  "summary": "The Padovan numbers count tilings by dominoes and trominoes. A second recurrence uses only earlier terms of the same index parity.",
+  "namespace": "PadovanShift",
+  "theorem": "sixStepRecurrence",
+  "tasks": [
+    {
+      "id": "long-shift",
+      "title": "Split the longer board",
+      "module": "LongShift",
+      "theorem": "longShift",
+      "claimConstant": "LongShiftClaim",
+      "claim": "∀ n : ℕ, tilings (n + 7) = tilings (n + 5) + tilings (n + 4)",
+      "role": "Expands the term of length n+7 by its possible first tiles.",
+      "context": "Drop a first domino or a first tromino. These are disjoint and give the two shorter board lengths named in the claim."
+    },
+    {
+      "id": "short-shift",
+      "title": "Compare the middle and shorter boards",
+      "module": "ShortShift",
+      "theorem": "shortShift",
+      "claimConstant": "ShortShiftClaim",
+      "claim": "∀ n : ℕ, tilings (n + 4) + tilings (n + 3) = tilings (n + 5) + tilings (n + 1)",
+      "role": "Replaces the leftover sum after splitting the longer board.",
+      "context": "Expand all of P(n+4), P(n+3), and P(n+5) by their possible first tiles. The two sides reorganize the same four shorter counts, with P(n+3) itself expanded once more on the right."
+    }
+  ]
+}

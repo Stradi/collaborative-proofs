@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PellBracelets.Problem",
+  "solution_module": "Proofs.PellBracelets.Solution",
+  "theorem_names": [
+    "PellBracelets.braceletCount"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

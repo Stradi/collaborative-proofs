@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PellSquareSum.SquareEndpoint",
+  "solution_module": "Proofs.PellSquareSum.SquareEndpoint",
+  "theorem_names": [
+    "PellSquareSum.squareEndpoint"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

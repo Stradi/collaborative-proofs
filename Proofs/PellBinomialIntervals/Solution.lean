@@ -1,0 +1,5 @@
+import Proofs.PellBinomialIntervals.Plan
+import Proofs.PellBinomialIntervals.EvenSubsets
+import Proofs.PellBinomialIntervals.PellNeighbors
+
+theorem PellBinomialIntervals.evenSubsetSum : PellBinomialIntervals.ProblemClaim := PellBinomialIntervals.plan PellBinomialIntervals.evenSubsets PellBinomialIntervals.pellNeighbors

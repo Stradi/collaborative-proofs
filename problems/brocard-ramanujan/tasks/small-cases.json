@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.BrocardRamanujan.SmallCases",
+  "solution_module": "Proofs.BrocardRamanujan.SmallCases",
+  "theorem_names": [
+    "BrocardRamanujan.smallCases"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

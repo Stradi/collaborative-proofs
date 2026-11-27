@@ -1,0 +1,5 @@
+import Proofs.ColoredTilingAddition.Plan
+import Proofs.ColoredTilingAddition.LineCut
+import Proofs.ColoredTilingAddition.BraceletCut
+
+theorem ColoredTilingAddition.twoCutIdentity : ColoredTilingAddition.ProblemClaim := ColoredTilingAddition.plan ColoredTilingAddition.lineCut ColoredTilingAddition.braceletCut

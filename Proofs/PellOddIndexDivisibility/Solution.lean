@@ -1,0 +1,5 @@
+import Proofs.PellOddIndexDivisibility.Plan
+import Proofs.PellOddIndexDivisibility.LastSquare
+import Proofs.PellOddIndexDivisibility.Midpoint
+
+theorem PellOddIndexDivisibility.pellDividesOddPrefix : PellOddIndexDivisibility.ProblemClaim := PellOddIndexDivisibility.plan PellOddIndexDivisibility.lastSquare PellOddIndexDivisibility.midpoint

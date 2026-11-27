@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PadovanShift.Problem",
+  "solution_module": "Proofs.PadovanShift.Solution",
+  "theorem_names": [
+    "PadovanShift.sixStepRecurrence"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ColoredTilingAddition.LineCut",
+  "solution_module": "Proofs.ColoredTilingAddition.LineCut",
+  "theorem_names": [
+    "ColoredTilingAddition.lineCut"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ColoredDominoPrefix.BoardStep",
+  "solution_module": "Proofs.ColoredDominoPrefix.BoardStep",
+  "theorem_names": [
+    "ColoredDominoPrefix.boardStep"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

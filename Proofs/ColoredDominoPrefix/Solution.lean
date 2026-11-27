@@ -1,0 +1,5 @@
+import Proofs.ColoredDominoPrefix.Plan
+import Proofs.ColoredDominoPrefix.WeightedStep
+import Proofs.ColoredDominoPrefix.BoardStep
+
+theorem ColoredDominoPrefix.weightedTilingSum : ColoredDominoPrefix.ProblemClaim := ColoredDominoPrefix.plan ColoredDominoPrefix.weightedStep ColoredDominoPrefix.boardStep

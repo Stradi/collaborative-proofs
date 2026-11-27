@@ -1,0 +1,28 @@
+{
+  "title": "An even-subset sum for Pell numbers",
+  "summary": "Choose an even number of cells from a row and pair them in order. Color each pair in one of two ways. The total is the sum of two consecutive Pell numbers.",
+  "namespace": "PellBinomialIntervals",
+  "theorem": "evenSubsetSum",
+  "tasks": [
+    {
+      "id": "even-subsets",
+      "title": "Count even subsets by recurrence",
+      "module": "EvenSubsets",
+      "theorem": "evenSubsets",
+      "claimConstant": "EvenSubsetsClaim",
+      "claim": "∀ n : ℕ, (∑ r ∈ Finset.range ((n + 3) / 2 + 1), ((n + 3).choose (2 * r)) * 2 ^ r) =\n    2 * (∑ r ∈ Finset.range ((n + 2) / 2 + 1), ((n + 2).choose (2 * r)) * 2 ^ r) +\n    ∑ r ∈ Finset.range ((n + 1) / 2 + 1), ((n + 1).choose (2 * r)) * 2 ^ r",
+      "role": "Gives the recurrence for the weighted binomial counts.",
+      "context": "The even and odd coefficient sums A(n), B(n) of (1+x)^n with x²=2 satisfy A(n+1)=A(n)+2B(n) and B(n+1)=A(n)+B(n). Eliminate B to get A(n+2)=2A(n+1)+A(n). For the source's bijection, consecutive chosen endpoints bound intervals. Fill each interval with black squares and a final white square or domino, and fill gaps with white squares."
+    },
+    {
+      "id": "pell-neighbors",
+      "title": "Add adjacent Pell terms",
+      "module": "PellNeighbors",
+      "theorem": "pellNeighbors",
+      "claimConstant": "PellNeighborsClaim",
+      "claim": "∀ n : ℕ, pell (n + 2) + pell (n + 3) =\n    2 * (pell (n + 1) + pell (n + 2)) + (pell n + pell (n + 1))",
+      "role": "Shows that the right side has the same recurrence.",
+      "context": "Expand P(n+3) and P(n+2) using the Pell recurrence and rearrange. In the source, the last tile is either a white square or a domino, giving the two summands."
+    }
+  ]
+}
