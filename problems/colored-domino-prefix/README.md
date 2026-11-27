@@ -9,4 +9,4 @@ Known written proof.
 ## Proof tasks
 
 - **Extend the weighted sum**. Gives the recurrence of the sum after adding one cell. Split off the last term with Finset.sum_range_succ. For every remaining index k ≤ n, the exponent increases by one, so an extra factor a can be taken out of the sum.
-- **Separate the first domino from the square prefix**. Identifies each step of the board count used in the assembly induction. A first square uses one of a colors, and a first domino uses one of b colors. The remaining board gives the two terms. The same relation is the defining recurrence, so unfolding tiles once verifies it.
+- **Split on the first tile**. Identifies each step of the board count used in the assembly induction. A first square uses one of a colors, and a first domino uses one of b colors. The remaining board gives the two terms. The same relation is the defining recurrence, so unfolding tiles once verifies it.

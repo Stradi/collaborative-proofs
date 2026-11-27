@@ -1,5 +1,4 @@
 import Mathlib.Algebra.BigOperators.Ring.Finset
-import Mathlib.Tactic.Ring
 
 open scoped BigOperators
 
@@ -21,7 +20,7 @@ def WeightedStepClaim : Prop :=
   ∀ a b n : ℕ, (∑ k ∈ Finset.range (n + 2), tiles a b k * a ^ (n + 1 - k)) =
     a * (∑ k ∈ Finset.range (n + 1), tiles a b k * a ^ (n - k)) + tiles a b (n + 1)
 
-/-- Separate the first domino from the square prefix (task `board-step`). -/
+/-- Split on the first tile (task `board-step`). -/
 def BoardStepClaim : Prop :=
   ∀ a b n : ℕ, tiles a b (n + 2) = a * tiles a b (n + 1) + b * tiles a b n
 

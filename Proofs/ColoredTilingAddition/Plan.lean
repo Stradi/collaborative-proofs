@@ -1,3 +1,4 @@
+import Mathlib.Tactic.Ring
 import Proofs.ColoredTilingAddition.Claims
 
 namespace ColoredTilingAddition

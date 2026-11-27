@@ -16,7 +16,7 @@
     },
     {
       "id": "board-step",
-      "title": "Separate the first domino from the square prefix",
+      "title": "Split on the first tile",
       "module": "BoardStep",
       "theorem": "boardStep",
       "claimConstant": "BoardStepClaim",
