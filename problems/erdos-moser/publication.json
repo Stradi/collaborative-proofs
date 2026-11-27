@@ -12,7 +12,17 @@
       "claimConstant": "MoserRestrictionClaim",
       "claim": "∀ k m : ℕ, 2 ≤ k → Even k → 2 ≤ m → powerSum k m = m ^ k →\n    3 < m ∧ m % 8 = 3",
       "role": "Isolates the residue class in which an even-exponent solution could occur.",
-      "context": "Use Moree's proof of Moser's theorem. Compare the sum and m^k modulo 4 to restrict m modulo 8. For an even m, grouping the sum into blocks modulo its exact power of two gives a nonzero residue, contradicting m^k. Handle m=3 separately using 1+2^k < 3^k for k≥2."
+      "context": "Use Moree's proof of Moser's theorem (https://arxiv.org/abs/1011.2940). Compare the sum and m^k modulo 4 to restrict m modulo 8. For an even m, grouping the sum into blocks modulo its exact power of two gives a nonzero residue, contradicting m^k. Handle m=3 separately using 1+2^k < 3^k for k≥2."
+    },
+    {
+      "id": "prime-restrictions",
+      "title": "Restrict the exponent using the prime divisors",
+      "module": "PrimeRestrictions",
+      "theorem": "primeRestrictions",
+      "claimConstant": "PrimeRestrictionsClaim",
+      "claim": "∀ k m : ℕ, 2 ≤ k → Even k → 2 ≤ m → powerSum k m = m ^ k → MoserPrimeDivisors k m",
+      "role": "Adds a constraint on the exponent for every prime dividing one of four integers near the base.",
+      "context": "Use the finite-field power sum in Moree, Sections 2 and 4 (https://arxiv.org/abs/1011.2940). For m−1 and m+1, reduce complete blocks modulo p. For 2m−1 and 2m+1, pair opposite residues using even k. In each case the equation forces a nonzero residue, so the power-sum identity gives p−1 ∣ k. For p=2 the divisibility holds directly."
     },
     {
       "id": "restricted-obstruction",
@@ -20,9 +30,9 @@
       "module": "RestrictedObstruction",
       "theorem": "restrictedObstruction",
       "claimConstant": "RestrictedObstructionClaim",
-      "claim": "∀ k m : ℕ, 2 ≤ k → Even k → 3 < m → m % 8 = 3 → powerSum k m ≠ m ^ k",
+      "claim": "∀ k m : ℕ, 2 ≤ k → Even k → 3 < m → m % 8 = 3 → MoserPrimeDivisors k m → powerSum k m ≠ m ^ k",
       "role": "Would rule out every candidate left by Moser's restriction.",
-      "context": "This is the open step. Start from the congruences for prime divisors of m−1, m+1, 2m−1 and 2m+1 in Moree. They constrain the exponent and the reciprocal sums but yield finite lower bounds. A contradiction has to cover arbitrarily large m. Record any narrower provable claim in a give-up report."
+      "context": "This is the open step. With the prime divisor restriction supplied as a hypothesis, try to combine the four reciprocal-sum congruences in Moree, Sections 2 and 4 (https://arxiv.org/abs/1011.2940). The published combination gives finite lower bounds. A contradiction has to cover arbitrarily large m. Record any narrower provable claim in a give-up report."
     }
   ]
 }

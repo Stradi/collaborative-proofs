@@ -10,7 +10,7 @@
       "module": "EvenSubsets",
       "theorem": "evenSubsets",
       "claimConstant": "EvenSubsetsClaim",
-      "claim": "∀ n : ℕ, (∑ r ∈ Finset.range ((n + 3) / 2 + 1), ((n + 3).choose (2 * r)) * 2 ^ r) =\n    2 * (∑ r ∈ Finset.range ((n + 2) / 2 + 1), ((n + 2).choose (2 * r)) * 2 ^ r) +\n    ∑ r ∈ Finset.range ((n + 1) / 2 + 1), ((n + 1).choose (2 * r)) * 2 ^ r",
+      "claim": "∀ n : ℕ, evenSubsetCount (n + 2) = 2 * evenSubsetCount (n + 1) + evenSubsetCount n",
       "role": "Gives the recurrence for the weighted binomial counts.",
       "context": "The even and odd coefficient sums A(n), B(n) of (1+x)^n with x²=2 satisfy A(n+1)=A(n)+2B(n) and B(n+1)=A(n)+B(n). Eliminate B to get A(n+2)=2A(n+1)+A(n). For the source's bijection, consecutive chosen endpoints bound intervals. Fill each interval with black squares and a final white square or domino, and fill gaps with white squares."
     },

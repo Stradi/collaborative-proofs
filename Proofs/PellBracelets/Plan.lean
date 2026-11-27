@@ -1,7 +1,5 @@
 import Proofs.PellBracelets.Claims
 
-open scoped BigOperators
-
 namespace PellBracelets
 
 theorem plan : StraightCountClaim → ClaspCountClaim → ProblemClaim := by
