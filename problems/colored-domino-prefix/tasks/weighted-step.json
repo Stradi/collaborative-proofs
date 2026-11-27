@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ColoredDominoPrefix.WeightedStep",
+  "solution_module": "Proofs.ColoredDominoPrefix.WeightedStep",
+  "theorem_names": [
+    "ColoredDominoPrefix.weightedStep"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

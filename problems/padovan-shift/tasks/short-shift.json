@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PadovanShift.ShortShift",
+  "solution_module": "Proofs.PadovanShift.ShortShift",
+  "theorem_names": [
+    "PadovanShift.shortShift"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

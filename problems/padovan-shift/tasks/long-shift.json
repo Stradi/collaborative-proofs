@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PadovanShift.LongShift",
+  "solution_module": "Proofs.PadovanShift.LongShift",
+  "theorem_names": [
+    "PadovanShift.longShift"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

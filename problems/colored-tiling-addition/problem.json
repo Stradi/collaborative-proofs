@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ColoredTilingAddition.Problem",
+  "solution_module": "Proofs.ColoredTilingAddition.Solution",
+  "theorem_names": [
+    "ColoredTilingAddition.twoCutIdentity"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

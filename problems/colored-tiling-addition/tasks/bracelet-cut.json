@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ColoredTilingAddition.BraceletCut",
+  "solution_module": "Proofs.ColoredTilingAddition.BraceletCut",
+  "theorem_names": [
+    "ColoredTilingAddition.braceletCut"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

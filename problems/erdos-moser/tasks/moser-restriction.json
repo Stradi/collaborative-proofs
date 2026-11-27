@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ErdosMoser.MoserRestriction",
+  "solution_module": "Proofs.ErdosMoser.MoserRestriction",
+  "theorem_names": [
+    "ErdosMoser.moserRestriction"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

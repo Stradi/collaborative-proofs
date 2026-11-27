@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PellBinomialIntervals.PellNeighbors",
+  "solution_module": "Proofs.PellBinomialIntervals.PellNeighbors",
+  "theorem_names": [
+    "PellBinomialIntervals.pellNeighbors"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

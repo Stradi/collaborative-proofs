@@ -1,0 +1,28 @@
+{
+  "title": "Two cuts for colored tilings",
+  "summary": "The same rectangular tiling can be cut in two places and related to circular tilings. Adding the two counts gives a product identity for generalized Fibonacci and Lucas numbers.",
+  "namespace": "ColoredTilingAddition",
+  "theorem": "twoCutIdentity",
+  "tasks": [
+    {
+      "id": "line-cut",
+      "title": "Split a row at a marked cut",
+      "module": "LineCut",
+      "theorem": "lineCut",
+      "claimConstant": "LineCutClaim",
+      "claim": "∀ a b m n : ℕ, tiles a b (m + n + 1) =\n    tiles a b (m + 1) * tiles a b n +\n      (if n = 0 then 0 else b * tiles a b m * tiles a b (n - 1))",
+      "role": "Partitions the row according to whether a domino crosses the cut after m+1 cells.",
+      "context": "A clean cut allows the left and right tilings to be chosen independently. A crossing domino has b colors and consumes one cell on each side. If the right side is empty, the crossing case contributes zero."
+    },
+    {
+      "id": "bracelet-cut",
+      "title": "Open a bracelet at the clasp",
+      "module": "BraceletCut",
+      "theorem": "braceletCut",
+      "claimConstant": "BraceletCutClaim",
+      "claim": "∀ a b n : ℕ, bracelet a b (n + 1) =\n    tiles a b (n + 1) + (if n = 0 then 0 else b * tiles a b (n - 1))",
+      "role": "Identifies the sum of the straight-board and clasp-crossing counts.",
+      "context": "Cut the circle at the clasp. If no domino crosses it, the entire circle opens into a row. If a domino crosses it, delete that domino and count the remaining row. For a recurrence proof, handle lengths one and two separately, then show both sides satisfy the same recurrence."
+    }
+  ]
+}

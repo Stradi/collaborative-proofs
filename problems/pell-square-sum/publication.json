@@ -1,0 +1,28 @@
+{
+  "title": "Square sums of Pell numbers",
+  "summary": "Add the first 4n + 1 positive-index Pell numbers. The result is always a square, for example 1 + 2 + 5 + 12 + 29 = 49.",
+  "namespace": "PellSquareSum",
+  "theorem": "pellPrefixIsSquare",
+  "tasks": [
+    {
+      "id": "prefix-sum",
+      "title": "Telescope the Pell prefix",
+      "module": "PrefixSum",
+      "theorem": "prefixSum",
+      "claimConstant": "PrefixSumClaim",
+      "claim": "∀ n : ℕ, 2 * (∑ k ∈ Finset.range (4 * n + 1), pell (k + 1)) + 1 =\n    pell (4 * n + 2) + pell (4 * n + 1)",
+      "role": "Expresses twice the target sum plus one in terms of its endpoints.",
+      "context": "Prove the identity first for an arbitrary prefix length m, with right side P(m+1) + P(m). On extending the prefix by one, the right side increases by 2P(m+1) by the Pell recurrence. The empty prefix gives 1 on both sides."
+    },
+    {
+      "id": "square-endpoint",
+      "title": "Identify the square at the endpoint",
+      "module": "SquareEndpoint",
+      "theorem": "squareEndpoint",
+      "claimConstant": "SquareEndpointClaim",
+      "claim": "∀ n : ℕ, pell (4 * n + 2) + pell (4 * n + 1) =\n    2 * (pell (2 * n + 1) + pell (2 * n)) ^ 2 + 1",
+      "role": "Expresses the same endpoint expression using the proposed square root.",
+      "context": "Write Q(j) = P(j+1) − P(j) over the integers. The recurrence gives Q(j+1) = Q(j) + 2P(j) and P(j+1) = Q(j) + P(j). By induction on j, Q(j)^2 − 2P(j)^2 = (−1)^j. The same recurrences give Q(2j) = Q(j)^2 + 2P(j)^2 by multiplication of Q + P√2. Hence Q(4n+2) = 2Q(2n+1)^2 + 1. Use P(j+2) − P(j+1) = P(j+1) + P(j) to translate back."
+    }
+  ]
+}

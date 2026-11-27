@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PellOddIndexDivisibility.Problem",
+  "solution_module": "Proofs.PellOddIndexDivisibility.Solution",
+  "theorem_names": [
+    "PellOddIndexDivisibility.pellDividesOddPrefix"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

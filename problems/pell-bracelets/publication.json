@@ -1,0 +1,28 @@
+{
+  "title": "Pell counts on a circular board",
+  "summary": "Tile a labeled circle with squares in two colors and dominoes in one color. Counting by domino count gives a binomial sum. Counting by whether a domino crosses the clasp gives two Pell numbers.",
+  "namespace": "PellBracelets",
+  "theorem": "braceletCount",
+  "tasks": [
+    {
+      "id": "straight-count",
+      "title": "Count tilings of a straight board",
+      "module": "StraightCount",
+      "theorem": "straightCount",
+      "claimConstant": "StraightCountClaim",
+      "claim": "∀ n : ℕ, (∑ r ∈ Finset.range (n / 2 + 1), ((n - r).choose r) * 2 ^ (n - 2 * r)) = pell (n + 1)",
+      "role": "Counts boards with a free clasp, where the circle can be cut into a line.",
+      "context": "With r dominoes the linear board has n−r tiles, of which r are dominoes. The n−2r squares each come in two colors. The total counts the Pell recurrence by considering the first tile."
+    },
+    {
+      "id": "clasp-count",
+      "title": "Count the clasp-crossing tilings by domino count",
+      "module": "ClaspCount",
+      "theorem": "claspCount",
+      "claimConstant": "ClaspCountClaim",
+      "claim": "∀ n : ℕ, (∑ r ∈ Finset.range (n / 2 + 1), ((n - r).choose r) * 2 ^ (n - 2 * r)) =\n    ∑ r ∈ Finset.range (n / 2 + 1), ((n + 2 - (r + 1) - 1).choose r) * 2 ^ (n + 2 - 2 * (r + 1))",
+      "role": "Relates the count on the remaining board to the count indexed by total dominoes, including the clasp domino.",
+      "context": "Remove the clasp domino from the n+2-cell circle. If the remaining board has r dominoes, the total was r+1, and the number of squares is unchanged. Simplify the two natural-number indices in each summand."
+    }
+  ]
+}

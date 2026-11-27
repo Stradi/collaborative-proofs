@@ -1,0 +1,28 @@
+{
+  "title": "A divisor of an odd-index Pell sum",
+  "summary": "Sum the first n + 1 odd-index Pell numbers. The Pell number at index n + 1 divides this sum.",
+  "namespace": "PellOddIndexDivisibility",
+  "theorem": "pellDividesOddPrefix",
+  "tasks": [
+    {
+      "id": "last-square",
+      "title": "Count by the last square",
+      "module": "LastSquare",
+      "theorem": "lastSquare",
+      "claimConstant": "LastSquareClaim",
+      "claim": "∀ n : ℕ, 2 * (∑ k ∈ Finset.range (n + 1), pell (2 * k + 1)) = pell (2 * n + 2)",
+      "role": "Turns the sum into half of a single Pell number.",
+      "context": "A board of odd length 2n+1 must contain a square. Its last square is in cell 2k+1, has two colors, and is followed solely by dominoes. The prefix contributes P(2k+1). Alternatively, apply the recurrence P(j+2) = 2P(j+1) + P(j) and telescope the even indices."
+    },
+    {
+      "id": "midpoint",
+      "title": "Cut the tiling at the midpoint",
+      "module": "Midpoint",
+      "theorem": "midpoint",
+      "claimConstant": "MidpointClaim",
+      "claim": "∀ n : ℕ, pell (2 * n + 2) = 2 * (pell (n + 1) * (pell (n + 1) + pell n))",
+      "role": "Provides an explicit multiple of twice the required divisor.",
+      "context": "Cut the length-2n+1 board after n cells. A clean cut contributes P(n+1)P(n+2). A crossing domino contributes P(n)P(n+1), which is zero at n = 0. Add the terms and use P(n+2) = 2P(n+1) + P(n)."
+    }
+  ]
+}

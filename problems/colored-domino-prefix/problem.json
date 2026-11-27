@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.ColoredDominoPrefix.Problem",
+  "solution_module": "Proofs.ColoredDominoPrefix.Solution",
+  "theorem_names": [
+    "ColoredDominoPrefix.weightedTilingSum"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

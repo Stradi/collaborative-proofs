@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.BrocardRamanujan.FactorialObstruction",
+  "solution_module": "Proofs.BrocardRamanujan.FactorialObstruction",
+  "theorem_names": [
+    "BrocardRamanujan.factorialObstruction"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

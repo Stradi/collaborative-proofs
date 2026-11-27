@@ -1,0 +1,28 @@
+{
+  "title": "Tilings with at least one colored domino",
+  "summary": "Separate the all-square tilings of a row from the tilings containing a domino. Choosing the first domino gives a weighted sum for the second class, for any number of square and domino colors.",
+  "namespace": "ColoredDominoPrefix",
+  "theorem": "weightedTilingSum",
+  "tasks": [
+    {
+      "id": "weighted-step",
+      "title": "Extend the weighted sum",
+      "module": "WeightedStep",
+      "theorem": "weightedStep",
+      "claimConstant": "WeightedStepClaim",
+      "claim": "∀ a b n : ℕ, (∑ k ∈ Finset.range (n + 2), tiles a b k * a ^ (n + 1 - k)) =\n    a * (∑ k ∈ Finset.range (n + 1), tiles a b k * a ^ (n - k)) + tiles a b (n + 1)",
+      "role": "Gives the recurrence of the sum after adding one cell.",
+      "context": "Split off the last term with Finset.sum_range_succ. For every remaining index k ≤ n, the exponent increases by one, so an extra factor a can be taken out of the sum."
+    },
+    {
+      "id": "board-step",
+      "title": "Separate the first domino from the square prefix",
+      "module": "BoardStep",
+      "theorem": "boardStep",
+      "claimConstant": "BoardStepClaim",
+      "claim": "∀ a b n : ℕ, tiles a b (n + 2) = a * tiles a b (n + 1) + b * tiles a b n",
+      "role": "Identifies each step of the board count used in the assembly induction.",
+      "context": "A first square uses one of a colors, and a first domino uses one of b colors. The remaining board gives the two terms. The same relation is the defining recurrence, so unfolding tiles once verifies it."
+    }
+  ]
+}
