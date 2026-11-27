@@ -1,4 +1,4 @@
-import Mathlib.Tactic.Ring
+import Mathlib.Algebra.Ring.Nat
 
 namespace ColoredTilingAddition
 
