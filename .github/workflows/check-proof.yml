@@ -1,40 +1,97 @@
 name: Check proof
 
-# pull_request_target runs this file and the checker from the base branch, so a PR cannot change
-# how it is judged. The PR head is checked out only as data and built inside ci-check's sandbox.
+# Run the base branch's workflow. The checker only builds submitted Lean inside its sandbox.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review, closed]
 
 permissions:
   contents: read
 
-concurrency:
-  group: check-proof-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ticket: ${{ steps.prepare.outputs.ticket }}
+      status: ${{ steps.prepare.outputs.status }}
+    steps:
+      - id: prepare
+        name: Match the proof reservation
+        env:
+          API_URL: ${{ vars.PROOF_API_URL }}
+          CHECKER_SECRET: ${{ secrets.PROOF_CHECKER_SECRET }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          event=$(jq -cn --arg repository "$GITHUB_REPOSITORY" --argjson number "$NUMBER" --arg head "$HEAD_SHA" \
+            '{repository:$repository,number:$number,head:$head}')
+          ticket=$(curl --silent --show-error --fail-with-body --max-time 90 \
+            -H "Authorization: Bearer $CHECKER_SECRET" -H 'Content-Type: application/json' \
+            --data "$event" "$API_URL/checker/prepare")
+          echo "ticket=$(jq -c . <<<"$ticket")" >>"$GITHUB_OUTPUT"
+          status=$(jq -er .status <<<"$ticket")
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          if [[ $status == rejected ]]; then
+            echo "This pull request has no matching active submission." >>"$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
   check:
+    needs: prepare
+    if: needs.prepare.outputs.status == 'check'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    outputs:
+      verdict: ${{ steps.check.outputs.verdict }}
     steps:
       - name: Check out the trusted base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
-          persist-credentials: false
-
-      - name: Fetch the submission as data
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: submission
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check the proof
-        run: base/scripts/checker/ci-check base submission work
+      - name: Fetch only the exact PR Git objects
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          READ_TOKEN: ${{ github.token }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$READ_TOKEN" | base64 -w0)"
+          git -C base fetch --no-tags origin "$HEAD_SHA"
+
+      - id: check
+        name: Check the frozen task claim
+        env:
+          TICKET: ${{ needs.prepare.outputs.ticket }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          frozen=$(jq -er .frozen <<<"$TICKET")
+          digest=$(jq -er .digest <<<"$TICKET")
+          path=$(jq -er .path <<<"$TICKET")
+          result=0
+          base/scripts/checker/ci-check base base work "$frozen" "$HEAD_SHA" || result=$?
+          verdict=fault
+          if jq -e --arg head "$HEAD_SHA" --arg frozen "$frozen" \
+            '.head_sha == $head and .frozen_sha == $frozen' work/out/verdict.json >/dev/null; then
+            case $result in
+              0)
+                if jq -e --arg digest "$digest" --arg path "$path" \
+                  '.verdict == "accepted" and .proof_sha256 == $digest and .proof_file == $path' work/out/verdict.json >/dev/null; then
+                  verdict=accepted
+                fi ;;
+              1)
+                if jq -e '.verdict == "rejected"' work/out/verdict.json >/dev/null; then
+                  verdict=rejected
+                fi ;;
+            esac
+          fi
+          echo "verdict=$verdict" >>"$GITHUB_OUTPUT"
+          [[ $verdict == accepted ]]
 
       - name: Upload the verdict
         if: always() && !env.ACT
@@ -43,3 +100,90 @@ jobs:
           name: verdict
           path: work/out/verdict.json
           if-no-files-found: ignore
+
+  report:
+    needs: [prepare, check]
+    if: always() && (needs.prepare.outputs.status == 'check' || needs.prepare.outputs.status == 'complete')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      assembly: ${{ steps.report.outputs.assembly }}
+    steps:
+      - id: report
+        name: Report the verdict and merge the passing revision
+        env:
+          API_URL: ${{ vars.PROOF_API_URL }}
+          CHECKER_SECRET: ${{ secrets.PROOF_CHECKER_SECRET }}
+          TICKET: ${{ needs.prepare.outputs.ticket }}
+          VERDICT: ${{ needs.check.outputs.verdict || 'fault' }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          result=$TICKET
+          if [[ $(jq -er .status <<<"$TICKET") == check ]]; then
+            problem=$(jq -er .problem <<<"$TICKET")
+            event=$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson number "$NUMBER" --arg head "$HEAD_SHA" \
+              --arg verdict "$VERDICT" '{submission,version,frozen,digest,repository:$repository,number:$number,head:$head,verdict:$verdict}' <<<"$TICKET")
+            result=$(curl --silent --show-error --fail-with-body --max-time 90 \
+              -H "Authorization: Bearer $CHECKER_SECRET" -H 'Content-Type: application/json' \
+              --data "$event" "$API_URL/checker/problems/$problem/verdict")
+          fi
+          echo "assembly=$(jq -c '.assembly // empty' <<<"$result")" >>"$GITHUB_OUTPUT"
+
+  assemble:
+    needs: report
+    if: needs.report.outputs.assembly != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      verdict: ${{ steps.check.outputs.verdict }}
+    steps:
+      - name: Fetch the frozen plan and the confirmed merge commits
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: base
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: check
+        name: Check the full proof against the frozen problem claim
+        env:
+          ASSEMBLY: ${{ needs.report.outputs.assembly }}
+        run: |
+          printf '%s\n' "$ASSEMBLY" > assembly.json
+          result=0
+          base/scripts/checker/ci-check base --assemble assembled assembly.json || result=$?
+          case $result in
+            0) echo 'verdict=accepted' >>"$GITHUB_OUTPUT" ;;
+            1) echo 'verdict=rejected' >>"$GITHUB_OUTPUT" ;;
+            *) echo 'verdict=fault' >>"$GITHUB_OUTPUT" ;;
+          esac
+          exit "$result"
+
+      - name: Upload the assembly verdict
+        if: always() && !env.ACT
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: assembly-verdict
+          path: assembled/out/verdict.json
+          if-no-files-found: ignore
+
+  report-assembly:
+    needs: [report, assemble]
+    if: always() && needs.report.outputs.assembly != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Report the checked assembly
+        env:
+          API_URL: ${{ vars.PROOF_API_URL }}
+          CHECKER_SECRET: ${{ secrets.PROOF_CHECKER_SECRET }}
+          ASSEMBLY: ${{ needs.report.outputs.assembly }}
+          VERDICT: ${{ needs.assemble.outputs.verdict || 'fault' }}
+        run: |
+          problem=$(jq -er .problem <<<"$ASSEMBLY")
+          event=$(jq -c --arg verdict "$VERDICT" '{id,frozen,verdict:$verdict}' <<<"$ASSEMBLY")
+          curl --silent --show-error --fail-with-body --max-time 90 \
+            -H "Authorization: Bearer $CHECKER_SECRET" -H 'Content-Type: application/json' \
+            --data "$event" "$API_URL/checker/problems/$problem/assembly" >/dev/null
