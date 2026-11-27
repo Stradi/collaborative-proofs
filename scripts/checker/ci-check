@@ -3,15 +3,17 @@
 # Usage: ci-check <base-checkout> <pr-head-checkout> <work-dir> [frozen-revision] [pr-head-revision]
 #        ci-check <base-checkout> --assemble <work-dir> <assembly-manifest>
 #        ci-check <base-checkout> --plan <work-dir> <PR-head-revision>
+#        ci-check <base-checkout> --revision <work-dir> <PR-head-revision>
 # Writes <work-dir>/out/verdict.json. Exit codes: 0 accepted, 1 rejected, 2 checker fault.
 set -uo pipefail
 
 base=$(realpath "$1")
 input=$2
 assembly=""
+plan_input=false
 case $input in
   --assemble) assembly=$(realpath "$4") ;;
-  --plan) ;;
+  --plan | --revision) plan_input=true ;;
   *) submission=$(realpath "$input") ;;
 esac
 work=$(realpath -m "$3")
@@ -78,7 +80,7 @@ frozen_revision=${4:-$base_sha}
 if [[ -n $assembly ]]; then
   frozen_revision=$(jq -er '.frozen' "$assembly") || finish fault setup "missing assembly revision"
 fi
-if [[ $input == --plan ]]; then frozen_revision=$4; head_sha=$4; fi
+if "$plan_input"; then frozen_revision=$4; head_sha=$4; fi
 [[ $frozen_revision =~ ^[a-f0-9]{40}$ ]] || finish fault setup "invalid frozen revision"
 frozen_sha=$(git -C "$base" rev-parse --verify "$frozen_revision^{commit}") ||
   finish fault setup "the frozen revision is unavailable"
@@ -227,10 +229,114 @@ stage_plan() {
     finish fault setup "could not prepare the plan check"
 }
 
+stage_revision() {
+  local manifest diff retired old_cfg old_module old_challenge old_theorem old_claim old_import
+  local ns prefix claims plan lemma bridge config_path new_id index=0 module name constant
+  local signature="" imports="" args="" reasons
+  local -a changed=() expected_paths=()
+  diff=$(git -C "$base" diff --no-renames --name-only "$base_sha" "$head_sha") ||
+    finish fault files "could not read the revision diff"
+  manifest=$(grep -Ex 'problems/[a-z0-9]+(-[a-z0-9]+)*/revisions/[a-z0-9]+(-[a-z0-9]+)*\.json' <<<"$diff") ||
+    finish rejected files "missing task revision manifest"
+  [[ $manifest != *$'\n'* ]] || finish rejected files "expected one task revision manifest"
+  retired=$(basename "$manifest" .json)
+  task=${manifest#problems/}
+  task=${task%%/*}
+  local root="problems/$task"
+  config_path=$root/tasks/$retired.json
+  old_cfg=$work/retired-task.json
+  git -C "$base" show "$base_sha:$config_path" >"$old_cfg" || finish rejected files "missing retired task config"
+  old_module=$(json_string solution_module "$old_cfg")
+  [[ $old_module =~ ^Proofs\.([A-Z][A-Za-z0-9_]*)\.[A-Z][A-Za-z0-9_]*$ ]] ||
+    finish rejected files "invalid retired proof module"
+  ns=${BASH_REMATCH[1]}
+  bridge=$(module_path "$old_module")
+  old_challenge=$(module_path "$(json_string challenge_module "$old_cfg")")
+  old_theorem=$(json_theorems "$old_cfg")
+  [[ $old_theorem =~ ^$ns\.[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+    finish rejected files "invalid retired theorem"
+  old_import=$(file_imports "$workspace/$old_challenge")
+  old_claim=$(jq -er --arg ns "$ns" '.oldClaim | select(test("^" + $ns + "\\.[A-Za-z_][A-Za-z0-9_]*$"))' "$workspace/$manifest") ||
+    finish rejected files "invalid retired claim constant"
+  [[ $old_import =~ ^Proofs\.$ns\.[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+    finish rejected files "invalid retired claims module"
+  require_source "$old_challenge" "import $old_import
+    theorem $old_theorem : $old_claim := by sorry"
+  prefix=$(jq -er '.prefix | select(test("^Revision[0-9a-f]{16}$"))' "$workspace/$manifest") ||
+    finish rejected files "invalid revision module prefix"
+  mapfile -t changed < <(jq -er '.tasks | select(type == "array" and length >= 1 and length <= 10) | .[] |
+    select(type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$"))' "$workspace/$manifest")
+  [[ ${#changed[@]} -gt 0 ]] || finish rejected files "missing replacement tasks"
+
+  claims=Proofs.$ns.${prefix}Claims
+  plan=Proofs.$ns.${prefix}Plan
+  lemma=$ns.${prefix}ImpliesRetiredClaim
+  proof=$(module_path "$plan")
+  expected_paths=("$manifest" "$config_path" "$bridge" "$(module_path "$claims")" "$proof")
+  imports="import $plan"
+  for new_id in "${changed[@]}"; do
+    ((index+=1))
+    module=${prefix}Task$index
+    name=$ns.${prefix}Proof$index
+    constant=$ns.${prefix}Claim$index
+    signature+="$constant → "
+    imports+=$'\n'"import Proofs.$ns.$module"
+    args+=" $name"
+    config_path=$root/tasks/$new_id.json
+    local challenge_file="Challenges/$ns/$module.lean"
+    expected_paths+=("$config_path" "$challenge_file")
+    jq -e --arg c "Challenges.$ns.$module" --arg s "Proofs.$ns.$module" --arg t "$name" '
+      . == {challenge_module:$c, solution_module:$s, theorem_names:[$t],
+        permitted_axioms:["propext","Quot.sound","Classical.choice"],external_kernels:{nanoda:["nanoda_bin"]}}
+    ' "$workspace/$config_path" >/dev/null || finish rejected files "invalid replacement task config"
+    require_source "$challenge_file" "import $claims
+      theorem $name : $constant := by sorry"
+    [[ ! -e $workspace/Proofs/$ns/$module.lean && ! -L $workspace/Proofs/$ns/$module.lean ]] ||
+      finish rejected files "replacement proof files are reserved for submissions"
+    cp "$workspace/$challenge_file" "$workspace/Proofs/$ns/$module.lean" ||
+      finish fault setup "could not prepare the replacement proof placeholder"
+  done
+
+  [[ $(printf '%s\n' "${expected_paths[@]}" | sort) == "$(sort <<<"$diff")" ]] ||
+    finish rejected files "a task revision may only replace the retired config and add the revision files"
+  local retired_config="$root/tasks/$retired.json"
+  local status
+  status=$(git -C "$base" diff --raw --no-renames "$base_sha" "$head_sha") ||
+    finish fault files "could not verify revision file modes"
+  while IFS=$'\t' read -r metadata path; do
+    if [[ $path == "$retired_config" ]]; then
+      [[ $metadata =~ ^:100644\ 000000\ [0-9a-f]+\ [0-9a-f]+\ D$ ]] ||
+        finish rejected files "the retired task config must be deleted"
+    else
+      [[ $metadata =~ ^:000000\ 100644\ [0-9a-f]+\ [0-9a-f]+\ A$ ]] ||
+        finish rejected files "the revision may only add new regular files"
+    fi
+  done <<<"$status"
+
+  require_source "$bridge" "$imports
+    theorem $old_theorem : $old_claim := $lemma$args"
+  local expected=Challenges.$ns.${prefix}Plan
+  printf 'import %s\ntheorem %s : %s%s := by sorry\n' "$claims" "$lemma" "$signature" "$old_claim" \
+    >"$workspace/$(module_path "$expected")" || finish fault setup "could not generate the revision challenge"
+  if ! reasons=$(lint_proof "$workspace/$(module_path "$claims")" "$workspace/$old_challenge") ||
+     ! reasons=$(lint_proof "$workspace/$proof" "$workspace/$(module_path "$expected")"); then
+    finish rejected rules "$reasons"
+  fi
+
+  plan_modules=("$old_module")
+  config=$work/revision.json
+  jq -n --arg challenge "$expected" --arg solution "$plan" --arg name "$lemma" \
+    '{challenge_module:$challenge,solution_module:$solution,theorem_names:[$name],
+      permitted_axioms:["propext","Quot.sound","Classical.choice"],external_kernels:{nanoda:["nanoda_bin"]}}' \
+    >"$config" || finish fault setup "could not prepare the revision check"
+}
+
 if [[ -n $assembly ]]; then
   stage_assembly
 elif [[ $input == --plan ]]; then
   stage_plan
+elif [[ $input == --revision ]]; then
+  stage_revision
 else
   stage_task_proof "${5:-HEAD}"
 fi
@@ -246,11 +352,15 @@ export ELAN_HOME=$work/elan HOME=$work/home
 ensure_lean || finish fault setup "could not install the pinned toolchain"
 fetch_mathlib "$proof" "$(module_path "$challenge_module")" ||
   finish fault setup "could not fetch dependencies or the Mathlib cache"
+# Lake writes a hash beside the trusted widget lockfile even when it replays a cached build.
+if [[ $input == --revision && -d .lake/packages/proofwidgets ]]; then
+  lake build proofwidgets/widgetPackageLock >&2 || finish fault setup "could not prepare the widget lockfile"
+fi
 docker build --quiet --tag proof-sandbox --file "$base/scripts/checker/sandbox.Dockerfile" \
   "$base/scripts/checker" >/dev/null || finish fault setup "could not build the sandbox image"
 
 log "Exporting the frozen claim $challenge_module"
-if [[ $input != --plan ]]; then
+if ! "$plan_input"; then
   export_module "$challenge_module" "$claim_export/claim.ndjson" "${theorems[@]}" ||
     finish fault claim "could not build or export the frozen claim"
 fi
@@ -264,7 +374,7 @@ probe=$(sandboxed 60 -- sh -c '
 ' 2>&1) || finish fault sandbox "the sandbox is not isolated: $probe"
 log "Sandbox: $probe"
 
-if [[ $input == --plan ]]; then
+if "$plan_input"; then
   sandboxed "$CHECK_BUILD_TIMEOUT" --volume "$workspace:$workspace" \
     --volume "$workspace/.lake/packages:$workspace/.lake/packages:ro" \
     --volume "$base/scripts/checker/lib.sh:/tmp/checker-lib.sh:ro" \
@@ -272,8 +382,9 @@ if [[ $input == --plan ]]; then
     . /tmp/checker-lib.sh
     lake build "${@:4}" >&2 &&
     export_module "$1" "$2/claim.ndjson" "$3"
-  ' bash "$challenge_module" "$claim_export" "${theorems[0]}" "${plan_modules[@]}" ||
-    finish rejected plan "could not build the expected plan statement"
+  ' bash "$challenge_module" "$claim_export" "${theorems[0]}" "${plan_modules[@]}" >"$out/plan.log" 2>&1 ||
+    finish rejected plan "could not build the expected plan statement
+$(tail -n 40 "$out/plan.log")"
 fi
 
 log "Building and exporting the submission in the sandbox"
