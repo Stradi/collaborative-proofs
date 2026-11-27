@@ -1,0 +1,17 @@
+{
+  "challenge_module": "Challenges.PublicationSmoke06.Problem",
+  "solution_module": "Proofs.PublicationSmoke06.Solution",
+  "theorem_names": [
+    "PublicationSmoke06.result"
+  ],
+  "permitted_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "external_kernels": {
+    "nanoda": [
+      "nanoda_bin"
+    ]
+  }
+}

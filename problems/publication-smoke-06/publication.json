@@ -1,0 +1,28 @@
+{
+  "title": "Admin publication hosted smoke",
+  "summary": "Assemble two facts into a conjunction.",
+  "namespace": "PublicationSmoke06",
+  "theorem": "result",
+  "tasks": [
+    {
+      "id": "first",
+      "title": "First",
+      "module": "First",
+      "theorem": "first",
+      "claimConstant": "FirstClaim",
+      "claim": "True",
+      "role": "Prove the first conjunct.",
+      "context": "Use True.intro."
+    },
+    {
+      "id": "second",
+      "title": "Second",
+      "module": "Second",
+      "theorem": "second",
+      "claimConstant": "SecondClaim",
+      "claim": "True",
+      "role": "Prove the second conjunct.",
+      "context": "Use True.intro."
+    }
+  ]
+}
