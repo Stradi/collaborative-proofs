@@ -1,0 +1,39 @@
+name: Check problem publication
+
+on:
+  push:
+    branches: ["admin/problem-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check problem plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    if: startsWith(github.ref, 'refs/heads/admin/problem-')
+    steps:
+      - name: Fetch the reviewed Git revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: base
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run the trusted checker against the exact head
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          base_sha=$(git -C base merge-base origin/main "$HEAD_SHA")
+          git -C base checkout --detach "$base_sha"
+          base/scripts/checker/ci-check base --plan work "$HEAD_SHA"
+
+      - name: Upload the verdict
+        if: always() && !env.ACT
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plan-verdict
+          path: work/out/
+          if-no-files-found: ignore
