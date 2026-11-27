@@ -353,7 +353,7 @@ ensure_lean || finish fault setup "could not install the pinned toolchain"
 fetch_mathlib "$proof" "$(module_path "$challenge_module")" ||
   finish fault setup "could not fetch dependencies or the Mathlib cache"
 # Lake writes a hash beside the trusted widget lockfile even when it replays a cached build.
-if [[ $input == --revision && -d .lake/packages/proofwidgets ]]; then
+if "$plan_input" && [[ -d .lake/packages/proofwidgets ]]; then
   lake build proofwidgets/widgetPackageLock >&2 || finish fault setup "could not prepare the widget lockfile"
 fi
 docker build --quiet --tag proof-sandbox --file "$base/scripts/checker/sandbox.Dockerfile" \
