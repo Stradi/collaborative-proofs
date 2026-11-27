@@ -2,17 +2,18 @@
 # Judges a proof PR. Runs from the trusted base checkout and reads the PR head only as data.
 # Usage: ci-check <base-checkout> <pr-head-checkout> <work-dir> [frozen-revision] [pr-head-revision]
 #        ci-check <base-checkout> --assemble <work-dir> <assembly-manifest>
+#        ci-check <base-checkout> --plan <work-dir> <PR-head-revision>
 # Writes <work-dir>/out/verdict.json. Exit codes: 0 accepted, 1 rejected, 2 checker fault.
 set -uo pipefail
 
 base=$(realpath "$1")
 input=$2
 assembly=""
-if [[ $input == --assemble ]]; then
-  assembly=$(realpath "$4")
-else
-  submission=$(realpath "$input")
-fi
+case $input in
+  --assemble) assembly=$(realpath "$4") ;;
+  --plan) ;;
+  *) submission=$(realpath "$input") ;;
+esac
 work=$(realpath -m "$3")
 # shellcheck source=lib.sh
 . "$base/scripts/checker/lib.sh"
@@ -77,6 +78,7 @@ frozen_revision=${4:-$base_sha}
 if [[ -n $assembly ]]; then
   frozen_revision=$(jq -er '.frozen' "$assembly") || finish fault setup "missing assembly revision"
 fi
+if [[ $input == --plan ]]; then frozen_revision=$4; head_sha=$4; fi
 [[ $frozen_revision =~ ^[a-f0-9]{40}$ ]] || finish fault setup "invalid frozen revision"
 frozen_sha=$(git -C "$base" rev-parse --verify "$frozen_revision^{commit}") ||
   finish fault setup "the frozen revision is unavailable"
@@ -152,8 +154,83 @@ stage_assembly() {
   proof=$(module_path "$(json_string solution_module "$config")")
 }
 
+require_source() {
+  local path=$1 expected=$2
+  [[ -f $workspace/$path && ! -L $workspace/$path ]] ||
+    finish rejected plan "missing regular Lean source: $path"
+  if [[ $(tr -d '[:space:]' <"$workspace/$path") != "$(tr -d '[:space:]' <<<"$expected")" ]]; then
+    finish rejected plan "$path must declare the manifest's exact claim using the authoring template"
+  fi
+}
+
+stage_plan() {
+  local diff manifest ns theorem task_id task_module task_name claim signature="" imports="" args=""
+  local -a challenges=()
+  diff=$(git -C "$base" diff --no-renames --name-only "$base_sha" "$head_sha") ||
+    finish fault files "could not read the problem diff"
+  if git -C "$base" diff --raw --no-renames "$base_sha" "$head_sha" |
+     grep -qvE '^:000000 100644 [0-9a-f]+ [0-9a-f]+ A[[:space:]]'; then
+    finish rejected files "a problem PR may only add regular files"
+  fi
+  manifest=$(grep -Ex 'problems/[a-z0-9]+(-[a-z0-9]+)*/publication\.json' <<<"$diff") ||
+    finish rejected files "missing publication manifest"
+  [[ $manifest != *$'\n'* ]] || finish rejected files "expected one publication manifest"
+  task=${manifest#problems/}
+  task=${task%/publication.json}
+  local metadata=$workspace/$manifest
+  ns=$(jq -er '.namespace | select(test("^[A-Z][A-Za-z0-9_]*$"))' "$metadata") ||
+    finish rejected files "invalid Lean namespace"
+  theorem=$(jq -er '.theorem | select(test("^[A-Za-z_][A-Za-z0-9_]*$"))' "$metadata") ||
+    finish rejected files "invalid problem theorem"
+  local files="^((Proofs|Challenges)/$ns/[^/]+\.lean|problems/$task/(README\.md|publication\.json|problem\.json|tasks/[a-z0-9-]+\.json))$"
+  if grep -qvEx "$files" <<<"$diff"; then
+    finish rejected files "a problem PR may only change the planned problem's files"
+  fi
+  while IFS=$'\t' read -r task_id task_module task_name claim; do
+    [[ $task_id =~ ^[a-z0-9-]+$ && $task_module =~ ^[A-Z][A-Za-z0-9_]*$ &&
+       $task_name =~ ^[A-Za-z_][A-Za-z0-9_]*$ && $claim =~ ^[A-Z][A-Za-z0-9_]*$ ]] ||
+      finish rejected files "invalid task manifest entry"
+    [[ ! -e $workspace/Proofs/$ns/$task_module.lean && ! -L $workspace/Proofs/$ns/$task_module.lean ]] ||
+      finish rejected files "task proof files are reserved for submissions"
+    require_source "Challenges/$ns/$task_module.lean" "import Proofs.$ns.Claims
+      theorem $ns.$task_name : $ns.$claim := by sorry"
+    signature+="$ns.$claim → "
+    imports+=$'\n'"import Proofs.$ns.$task_module"
+    args+=" $ns.$task_name"
+    challenges+=("Challenges.$ns.$task_module")
+    cp "$workspace/Challenges/$ns/$task_module.lean" "$workspace/Proofs/$ns/$task_module.lean" ||
+      finish fault setup "could not prepare the assembly check"
+
+  done < <(jq -er '.tasks[] | [.id, .module, .theorem, .claimConstant] | @tsv' "$metadata")
+  [[ ${#challenges[@]} -gt 0 ]] || finish rejected files "expected at least one task"
+  require_source "Challenges/$ns/Problem.lean" "import Proofs.$ns.Claims
+    theorem $ns.$theorem : $ns.ProblemClaim := by sorry"
+  require_source "Proofs/$ns/Solution.lean" "import Proofs.$ns.Plan$imports
+    theorem $ns.$theorem : $ns.ProblemClaim := $ns.plan$args"
+  proof=Proofs/$ns/Plan.lean
+  [[ -f $workspace/$proof && ! -L $workspace/$proof ]] || finish rejected plan "missing regular plan source"
+  local claims_file=Proofs/$ns/Claims.lean
+  local expected=Challenges.$ns.PublicationPlan reasons
+  if ! reasons=$(lint_proof "$workspace/$claims_file" /dev/null) ||
+     ! reasons=$(lint_proof "$workspace/$proof" "$workspace/Challenges/$ns/Problem.lean"); then
+    finish rejected rules "$reasons"
+  fi
+  plan_modules=("Challenges.$ns.Problem" "${challenges[@]}" "Proofs.$ns.Solution")
+
+  printf 'import Proofs.%s.Claims\ntheorem %s.plan : %s%s.ProblemClaim := by sorry\n' \
+    "$ns" "$ns" "$signature" "$ns" >"$workspace/Challenges/$ns/PublicationPlan.lean" ||
+    finish fault setup "could not generate the plan challenge"
+  config=$work/plan.json
+  jq -n --arg challenge "$expected" --arg solution "Proofs.$ns.Plan" --arg name "$ns.plan" \
+    '{challenge_module:$challenge,solution_module:$solution,theorem_names:[$name],
+      permitted_axioms:["propext","Quot.sound","Classical.choice"],external_kernels:{nanoda:["nanoda_bin"]}}' >"$config" ||
+    finish fault setup "could not prepare the plan check"
+}
+
 if [[ -n $assembly ]]; then
   stage_assembly
+elif [[ $input == --plan ]]; then
+  stage_plan
 else
   stage_task_proof "${5:-HEAD}"
 fi
@@ -173,8 +250,10 @@ docker build --quiet --tag proof-sandbox --file "$base/scripts/checker/sandbox.D
   "$base/scripts/checker" >/dev/null || finish fault setup "could not build the sandbox image"
 
 log "Exporting the frozen claim $challenge_module"
-export_module "$challenge_module" "$claim_export/claim.ndjson" "${theorems[@]}" ||
-  finish fault claim "could not build or export the frozen claim"
+if [[ $input != --plan ]]; then
+  export_module "$challenge_module" "$claim_export/claim.ndjson" "${theorems[@]}" ||
+    finish fault claim "could not build or export the frozen claim"
+fi
 
 log "Probing the sandbox before it runs submitted code"
 probe=$(sandboxed 60 -- sh -c '
@@ -184,6 +263,18 @@ probe=$(sandboxed 60 -- sh -c '
     "pids.max=$(cat /sys/fs/cgroup/pids.max) cpu.max=$(cat /sys/fs/cgroup/cpu.max) uid=$(id -u)"
 ' 2>&1) || finish fault sandbox "the sandbox is not isolated: $probe"
 log "Sandbox: $probe"
+
+if [[ $input == --plan ]]; then
+  sandboxed "$CHECK_BUILD_TIMEOUT" --volume "$workspace:$workspace" \
+    --volume "$workspace/.lake/packages:$workspace/.lake/packages:ro" \
+    --volume "$base/scripts/checker/lib.sh:/tmp/checker-lib.sh:ro" \
+    --volume "$claim_export:$claim_export" --workdir "$workspace" -- bash -c '
+    . /tmp/checker-lib.sh
+    lake build "${@:4}" >&2 &&
+    export_module "$1" "$2/claim.ndjson" "$3"
+  ' bash "$challenge_module" "$claim_export" "${theorems[0]}" "${plan_modules[@]}" ||
+    finish rejected plan "could not build the expected plan statement"
+fi
 
 log "Building and exporting the submission in the sandbox"
 # The claim export stays outside this container, so code run while elaborating the submission
