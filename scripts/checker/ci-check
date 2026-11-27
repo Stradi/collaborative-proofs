@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Judges a proof PR. Runs from the trusted base checkout and reads the PR head only as data.
-# Usage: ci-check <base-checkout> <pr-head-checkout> <work-dir>
+# Usage: ci-check <base-checkout> <pr-head-checkout> <work-dir> [frozen-revision] [pr-head-revision]
+#        ci-check <base-checkout> --assemble <work-dir> <assembly-manifest>
 # Writes <work-dir>/out/verdict.json. Exit codes: 0 accepted, 1 rejected, 2 checker fault.
 set -uo pipefail
 
 base=$(realpath "$1")
-submission=$(realpath "$2")
+input=$2
+assembly=""
+if [[ $input == --assemble ]]; then
+  assembly=$(realpath "$4")
+else
+  submission=$(realpath "$input")
+fi
 work=$(realpath -m "$3")
 # shellcheck source=lib.sh
 . "$base/scripts/checker/lib.sh"
@@ -20,32 +27,23 @@ mkdir -p "$out" "$claim_export" "$submission_export" "$work/home"
 : "${CHECK_BUILD_TIMEOUT:=1200}" "${CHECK_JUDGE_TIMEOUT:=900}"
 
 base_sha=$(git -C "$base" rev-parse HEAD)
-head_sha=$(git -C "$submission" rev-parse HEAD)
+head_sha=""
+frozen_sha=""
 task="" proof="" digest=""
-
-json_escape() {
-  sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/ /g' | awk 'BEGIN { ORS = "" } NR > 1 { print "\\n" } { print }'
-}
 
 finish() {
   local verdict=$1 stage=$2 reason=$3 code
   case $verdict in accepted) code=0 ;; rejected) code=1 ;; *) code=2 ;; esac
-  cat >"$out/verdict.json" <<JSON
-{
-  "verdict": "$verdict",
-  "stage": "$stage",
-  "task": "$task",
-  "proof_file": "$proof",
-  "proof_sha256": "$digest",
-  "base_sha": "$base_sha",
-  "head_sha": "$head_sha",
-  "reason": "$(printf '%s' "$reason" | json_escape)"
-}
-JSON
-  log "$verdict at $stage: $reason"
+  jq -n --arg verdict "$verdict" --arg stage "$stage" --arg task "$task" \
+    --arg proof "$proof" --arg digest "$digest" --arg base "$base_sha" \
+    --arg frozen "$frozen_sha" --arg head "$head_sha" --arg reason "$reason" \
+    '{verdict:$verdict,stage:$stage,task:$task,proof_file:$proof,proof_sha256:$digest,
+      base_sha:$base,frozen_sha:$frozen,head_sha:$head,reason:$reason}' >"$out/verdict.json" || exit 2
+  log "$verdict at $stage"
+  printf '%s\n' "$reason" | sed 's/^/    /' >&2
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-    printf '### Proof check: %s\n\n- Task: `%s`\n- Stage: %s\n- Head: `%s`\n\n```\n%s\n```\n' \
-      "$verdict" "${task:-unknown}" "$stage" "$head_sha" "$reason" >>"$GITHUB_STEP_SUMMARY"
+    printf '### Proof check: %s\n\n- Task: `%s`\n- Stage: %s\n- Head: `%s`\n' \
+      "$verdict" "${task:-unknown}" "$stage" "$head_sha" >>"$GITHUB_STEP_SUMMARY"
   fi
   exit "$code"
 }
@@ -75,42 +73,96 @@ sandboxed() {
     proof-sandbox timeout --kill-after=10 "$seconds" "$@"
 }
 
-log "Checking $head_sha against base $base_sha"
-
-merge_base=$(git -C "$submission" merge-base "$base_sha" HEAD) ||
-  finish fault files "could not find the merge base of the PR and $base_sha"
-changes=$(git -C "$submission" diff --no-renames --name-status "$merge_base" HEAD)
-if [[ $(grep -c . <<<"$changes") -ne 1 ]]; then
-  finish rejected files "a proof PR must change exactly one task proof file; it changes:
-$changes"
+frozen_revision=${4:-$base_sha}
+if [[ -n $assembly ]]; then
+  frozen_revision=$(jq -er '.frozen' "$assembly") || finish fault setup "missing assembly revision"
 fi
-change_kind=${changes%%$'\t'*}
-proof=${changes#*$'\t'}
-for config in "$base"/problems/*/tasks/*.json; do
-  if [[ $(module_path "$(json_string solution_module "$config")") == "$proof" ]]; then
-    problem_dir=${config%/tasks/*}
-    task="${problem_dir##*/}/$(basename "$config" .json)"
-  fi
-done
-[[ -n $task ]] || finish rejected files "$proof is not a task proof file"
-# A task proof already on the base branch has been accepted; replacing it is not a submission.
-[[ $change_kind == A ]] || finish rejected files "$proof must be a new file, not change kind $change_kind"
-[[ $(git -C "$submission" ls-tree HEAD -- "$proof" | cut -d ' ' -f 1) == 100644 ]] ||
-  finish rejected files "$proof must be a regular file"
-
-config=$(task_config "$task")
-module=$(json_string solution_module "$base/$config")
-challenge_module=$(json_string challenge_module "$base/$config")
-mapfile -t theorems < <(json_theorems "$base/$config")
-
+[[ $frozen_revision =~ ^[a-f0-9]{40}$ ]] || finish fault setup "invalid frozen revision"
+frozen_sha=$(git -C "$base" rev-parse --verify "$frozen_revision^{commit}") ||
+  finish fault setup "the frozen revision is unavailable"
 rm -rf "$workspace" && mkdir -p "$workspace"
-git -C "$base" archive "$base_sha" | tar -x -C "$workspace" || finish fault setup "could not copy the base checkout"
-git -C "$submission" show "HEAD:$proof" >"$workspace/$proof" || finish fault setup "could not read $proof"
-digest=$(sha256sum "$workspace/$proof" | cut -d ' ' -f 1)
+git -C "$base" archive "$frozen_sha" | tar -x -C "$workspace" ||
+  finish fault setup "could not copy the frozen checkout"
 
-if ! reasons=$(lint_proof "$workspace/$proof" "$workspace/$(module_path "$challenge_module")"); then
-  finish rejected rules "$reasons"
+stage_task_proof() {
+  head_sha=$(git -C "$submission" rev-parse --verify "${1:-HEAD}^{commit}") || finish fault files "missing PR head"
+  log "Checking $head_sha against base $base_sha and frozen inputs $frozen_sha"
+  local merge_base changes change_kind matching
+  merge_base=$(git -C "$submission" merge-base "$base_sha" "$head_sha") ||
+    finish fault files "could not find the merge base of the PR and $base_sha"
+  changes=$(git -C "$submission" diff --no-renames --name-status "$merge_base" "$head_sha") ||
+    finish fault files "could not read the PR diff"
+  [[ $(grep -c . <<<"$changes") -eq 1 ]] ||
+    finish rejected files "a proof PR must change exactly one task proof file"
+  change_kind=${changes%%$'\t'*}
+  matching=${changes#*$'\t'}
+  for config in "$workspace"/problems/*/tasks/*.json; do
+    if [[ $(module_path "$(json_string solution_module "$config")") == "$matching" ]]; then
+      local problem_dir=${config%/tasks/*}
+      task="${problem_dir##*/}/$(basename "$config" .json)"
+      proof=$matching
+      break
+    fi
+  done
+  [[ -n $task ]] || finish rejected files "the changed file is not a frozen task proof file"
+  [[ $change_kind == A && ! -e $workspace/$proof ]] ||
+    finish rejected files "a submission must add a new proof file"
+  [[ $(git -C "$submission" ls-tree "$head_sha" -- "$proof" | cut -d ' ' -f 1) == 100644 ]] ||
+    finish rejected files "$proof must be a regular file"
+  git -C "$submission" show "$head_sha:$proof" >"$workspace/$proof" ||
+    finish fault setup "could not read $proof"
+  digest=$(sha256sum "$workspace/$proof" | cut -d ' ' -f 1)
+  lint_staged_proof "$config" "$proof"
+}
+
+lint_staged_proof() {
+  local config=$1 path=$2 reasons challenge
+  challenge=$(module_path "$(json_string challenge_module "$config")")
+  if ! reasons=$(lint_proof "$workspace/$path" "$workspace/$challenge"); then
+    finish rejected rules "$reasons"
+  fi
+}
+
+stage_assembly() {
+  task=$(jq -er '.problem' "$assembly") || finish fault setup "missing assembly problem"
+  [[ $task =~ ^[a-z0-9-]+$ ]] || finish fault setup "invalid assembly problem"
+  local task_config path sha expected count=0
+  for task_config in "$workspace/problems/$task"/tasks/*.json; do
+    [[ -f $task_config ]] || finish fault setup "missing frozen task configuration"
+    path=$(module_path "$(json_string solution_module "$task_config")")
+    sha=$(jq -er --arg path "$path" '[.proofs[] | select(.path == $path)] | select(length == 1) | .[0].sha' "$assembly") ||
+      finish fault setup "missing accepted proof for $path"
+    expected=$(jq -er --arg path "$path" '.proofs[] | select(.path == $path) | .digest' "$assembly") ||
+      finish fault setup "missing accepted digest for $path"
+    [[ $sha =~ ^[a-f0-9]{40}$ && $expected =~ ^[a-f0-9]{64}$ ]] ||
+      finish fault setup "invalid accepted proof reference for $path"
+    [[ $(git -C "$base" ls-tree "$sha" -- "$path" | cut -d ' ' -f 1) == 100644 ]] ||
+      finish fault setup "missing regular file $path at $sha"
+    git -C "$base" show "$sha:$path" >"$workspace/$path" ||
+      finish fault setup "could not read accepted proof $path"
+    [[ $(sha256sum "$workspace/$path" | cut -d ' ' -f 1) == "$expected" ]] ||
+      finish rejected assembly "merged proof digest mismatch for $path"
+    lint_staged_proof "$task_config" "$path"
+    ((count+=1))
+  done
+  [[ $(jq -er '.proofs | length' "$assembly") == "$count" ]] ||
+    finish fault setup "assembly needs exactly the frozen plan's tasks"
+  config=$workspace/problems/$task/problem.json
+  [[ -f $config ]] || finish fault setup "missing frozen assembly plan"
+  proof=$(module_path "$(json_string solution_module "$config")")
+}
+
+if [[ -n $assembly ]]; then
+  stage_assembly
+else
+  stage_task_proof "${5:-HEAD}"
 fi
+# Keep comparator configuration outside the sandbox's writable source tree.
+judge_config=$claim_export/config.json
+cp "$config" "$judge_config" || finish fault setup "could not pin the comparator config"
+module=$(json_string solution_module "$judge_config")
+challenge_module=$(json_string challenge_module "$judge_config")
+mapfile -t theorems < <(json_theorems "$judge_config")
 
 cd "$workspace" || finish fault setup "missing workspace"
 export ELAN_HOME=$work/elan HOME=$work/home
@@ -138,8 +190,9 @@ log "Building and exporting the submission in the sandbox"
 # can only change the submission's own export, which the kernels then check.
 sandboxed "$CHECK_BUILD_TIMEOUT" --volume "$workspace:$workspace" \
   --volume "$workspace/.lake/packages:$workspace/.lake/packages:ro" \
+  --volume "$base/scripts/checker/lib.sh:/tmp/checker-lib.sh:ro" \
   --volume "$submission_export:$submission_export" --workdir "$workspace" -- bash -c '
-  . scripts/checker/lib.sh
+  . /tmp/checker-lib.sh
   export_module "$1" "$2/solution.ndjson" "${@:3}"
 ' bash "$module" "$submission_export" "${theorems[@]}" >"$out/build.log" 2>&1
 build_status=$?
@@ -165,7 +218,7 @@ esac
 log "Judging the exports with comparator"
 sandboxed "$CHECK_JUDGE_TIMEOUT" --volume "$base:$base:ro" --volume "$claim_export:$claim_export:ro" \
   --volume "$submission_export:$submission_export:ro" --workdir "$base" -- \
-  lake comparator --inadvisably-no-sandbox --config="$base/$config" \
+  lake comparator --inadvisably-no-sandbox --config="$judge_config" \
   --challenge-from-export="$claim_export/claim.ndjson" \
   --solution-from-export="$submission_export/solution.ndjson" \
   >"$out/judge.log" 2>&1
